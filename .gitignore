@@ -1,1 +1,6 @@
 .venv/
+__pycache__/
+
+
+# comment to save checkpoints
+# checkpoints/

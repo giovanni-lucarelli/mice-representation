@@ -38,10 +38,10 @@ class DataManager():
     def __init__(self,
                  data_path      : str                           = data_path, 
                  labels_path    : str                           = labels_path,
-                 batch_size     : int                           = 128,  # Increased from 64
+                 batch_size     : int                           = 128,
                  train_transform: Optional[transforms.Compose]  = None,
                  eval_transform : Optional[transforms.Compose]  = None,
-                 num_workers    : int                           = 4,    # Increased from 2
+                 num_workers    : int                           = 4,
                  train_split    : float                         = 0.7,
                  val_split      : float                         = 0.15):
         
@@ -75,11 +75,6 @@ class DataManager():
             ])
         else:
             self.eval_transform = eval_transform
-        
-        
-
-        
-
             
         # Dataset attributes
         self.dataset        : Optional[ImageFolder]     = None
@@ -480,28 +475,51 @@ class ModelManager():
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
+                from pathlib import Path
+                checkpoints_dir = Path("checkpoints")
+                checkpoints_dir.mkdir(parents=True, exist_ok=True)
+                best_ckpt_path = checkpoints_dir / "best_model.pth"
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
                     "optimizer_state_dict": self.optimizer.state_dict(),
                     "loss": val_loss,
-                    "accuracy": val_acc
-                }, "best_model.pth")
-                print(f"Model saved to best_model.pth")
+                    "accuracy": val_acc,
+                    "history": {
+                        "train_losses": self.train_losses,
+                        "val_losses": self.val_losses,
+                        "train_accuracies": self.train_accuracies,
+                        "val_accuracies": self.val_accuracies,
+                        "train_top5_accuracies": self.train_top5_accuracies,
+                        "val_top5_accuracies": self.val_top5_accuracies,
+                    }
+                }, best_ckpt_path.as_posix())
+                print(f"Model saved to {best_ckpt_path}")
             else:
                 patience_counter += 1
                 print(f"Patience: {patience_counter}/{self.patience}")
                 
             # Milestone checkpoints
             if (epoch + 1) in [25, 50, 75, 100]:
-                ckpt_path = f"checkpoint_epoch_{epoch+1}.pth"
+                from pathlib import Path
+                checkpoints_dir = Path("checkpoints")
+                checkpoints_dir.mkdir(parents=True, exist_ok=True)
+                ckpt_path = checkpoints_dir / f"checkpoint_epoch_{epoch+1}.pth"
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
                     "optimizer_state_dict": self.optimizer.state_dict(),
                     "loss": val_loss,
-                    "accuracy": val_acc
-                }, ckpt_path)
+                    "accuracy": val_acc,
+                    "history": {
+                        "train_losses": self.train_losses,
+                        "val_losses": self.val_losses,
+                        "train_accuracies": self.train_accuracies,
+                        "val_accuracies": self.val_accuracies,
+                        "train_top5_accuracies": self.train_top5_accuracies,
+                        "val_top5_accuracies": self.val_top5_accuracies,
+                    }
+                }, ckpt_path.as_posix())
                 print(f"Saved milestone checkpoint: {ckpt_path}")
 
             # Stop if validation loss doesn't improve
@@ -559,17 +577,30 @@ class ModelManager():
         test_accuracy = 100 * correct / total
         test_accuracy5 = 100 * correct5 / total
         
-        print(f"Test Results - Loss: {test_loss:.4f}, Acc@1: {test_accuracy:.2f}%, Acc@5: {test_accuracy5:.2f}%")
-        
         return test_loss, test_accuracy, test_accuracy5
     
     def load_model(self, model_path: str):
-        if not os.path.exists(model_path):
+        # Try exact path first; if missing, try under checkpoints/
+        resolved_path = model_path
+        if not os.path.exists(resolved_path):
+            alt_path = os.path.join("checkpoints", os.path.basename(model_path))
+            if os.path.exists(alt_path):
+                resolved_path = alt_path
+        if not os.path.exists(resolved_path):
             raise FileNotFoundError(f"Model path {model_path} does not exist")
-        
-        checkpoint = torch.load(model_path, map_location=self.device)
+
+        checkpoint = torch.load(resolved_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        print(f"Model loaded from {model_path}")
+        # Restore history if available so plots are not empty
+        history = checkpoint.get('history')
+        if isinstance(history, dict):
+            self.train_losses = history.get('train_losses', [])
+            self.val_losses = history.get('val_losses', [])
+            self.train_accuracies = history.get('train_accuracies', [])
+            self.val_accuracies = history.get('val_accuracies', [])
+            self.train_top5_accuracies = history.get('train_top5_accuracies', [])
+            self.val_top5_accuracies = history.get('val_top5_accuracies', [])
+        print(f"Model loaded from {resolved_path}")
         print(f"Best validation loss: {checkpoint['loss']:.4f}")
         print(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
         
@@ -644,7 +675,9 @@ if __name__ == "__main__":
     )
     
     # Optional warm-start from best checkpoint for fine-tuning
-    if os.environ.get("FINETUNE_FROM_BEST", "0") == "1" and os.path.exists("best_model.pth"):
+    if os.environ.get("FINETUNE_FROM_BEST", "0") == "1" and (
+        os.path.exists("best_model.pth") or os.path.exists(os.path.join("checkpoints", "best_model.pth"))
+    ):
         try:
             model_manager.load_model("best_model.pth")
             print("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
