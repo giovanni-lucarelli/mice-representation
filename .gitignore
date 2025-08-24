@@ -1,6 +1,6 @@
-.venv/
+.*venv/
 __pycache__/
-
+AllenData/
 
 # comment to save checkpoints
 # checkpoints/

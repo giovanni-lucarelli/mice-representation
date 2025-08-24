@@ -1,22 +1,17 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import transforms, models
-from torch.utils.data import DataLoader, Subset
 from torch.nn import CrossEntropyLoss
 from torch.amp import autocast, GradScaler
+from torchvision import models
+
 from tqdm import tqdm
-from typing import Optional, Tuple, Dict, Any
-
+from typing import Optional
 import os
-from sklearn.model_selection import train_test_split
-from torchvision.datasets import ImageFolder
-
 from pathlib import Path
 
-
-# find root path
-root_path = Path(__file__).parent
+from config import *
+from DataManager import DataManager
 
 # Reduce /dev/shm usage to avoid DataLoader bus errors
 try:
@@ -26,217 +21,12 @@ try:
 except Exception:
     pass
 
-# define data paths
-data_path = root_path / "data" / "miniimagenet"
-labels_path = root_path / "data" / "labels.txt"
-
-#? -------------------------------------------------------------- #
-#?                         Data Manager                           #
-#? -------------------------------------------------------------- #
-
-class DataManager():
-    def __init__(self,
-                 data_path      : str                           = data_path, 
-                 labels_path    : str                           = labels_path,
-                 batch_size     : int                           = 128,
-                 train_transform: Optional[transforms.Compose]  = None,
-                 eval_transform : Optional[transforms.Compose]  = None,
-                 num_workers    : int                           = 4,
-                 train_split    : float                         = 0.7,
-                 val_split      : float                         = 0.15):
-        
-        self.data_path = Path(data_path)
-        self.labels_path = Path(labels_path)
-        self.num_workers = num_workers
-        self.batch_size = batch_size
-        self.train_split = train_split
-        self.val_split = val_split
-        
-        if train_transform is None:
-            # Train transform
-            self.train_transform = transforms.Compose([
-                transforms.Resize((64, 64)),   # resize diretto, no crop
-                transforms.RandomHorizontalFlip(p=0.5),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225]),
-            ])
-        else:
-            self.train_transform = train_transform
-
-        if eval_transform is None:
-            # Eval transform
-            self.eval_transform = transforms.Compose([
-                transforms.Resize((64, 64)),   # resize diretto, no crop
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                    std=[0.229, 0.224, 0.225]),
-            ])
-        else:
-            self.eval_transform = eval_transform
-            
-        # Dataset attributes
-        self.dataset        : Optional[ImageFolder]     = None
-        self._base_dataset  : Optional[ImageFolder]     = None
-        self.train_dataset  : Optional[Subset]          = None
-        self.val_dataset    : Optional[Subset]          = None
-        self.test_dataset   : Optional[Subset]          = None
-        
-        self.id_to_labels   : Dict[int, str]            = {}
-        self.labels_to_id   : Dict[str, int]            = {}
-        
-        # DataLoader attributes
-        self.train_loader   : Optional[DataLoader] = None
-        self.val_loader     : Optional[DataLoader] = None
-        self.test_loader    : Optional[DataLoader] = None
-        
-        # Dataset info
-        self.num_classes : Optional[int]    = None
-        self.class_names : Optional[list]   = None
-        
-    def load_labels(self):
-        if not self.labels_path.exists():
-            raise FileNotFoundError(f"Labels path {self.labels_path} does not exist")
-        
-        with open(self.labels_path, "r") as f:
-            labels_lines = f.readlines()
-        
-        # Parse labels: format is "n02119789 1 kit_fox"
-        for line in labels_lines:
-            parts = line.strip().split()
-            if len(parts) >= 3:
-                class_id = int(parts[1]) - 1  # 0-based index
-                class_name = parts[2].replace('_', ' ')
-                # forward lookup dictionary
-                self.id_to_labels[class_id] = class_name
-                # reverse lookup dictionary
-                self.labels_to_id[class_name] = class_id
-        
-    def _get_class_name(self, class_id: int) -> str:
-        if self.id_to_labels is None:
-            raise ValueError("Labels not loaded. Call load_labels() first.")
-        
-        try:
-            return self.id_to_labels[class_id]
-        except KeyError:
-            raise ValueError(f"Class ID '{class_id}' not found in labels.")
-    
-    def _get_class_id(self, class_name: str) -> int:
-        if self.labels_to_id is None:
-            raise ValueError("Labels not loaded. Call load_labels() first.")
-
-        try:
-            return self.labels_to_id[class_name]
-        except KeyError:
-            raise ValueError(f"Class name '{class_name}' not found in labels.")
-        
-    def load_data(self):
-        if not self.data_path.exists():
-            raise FileNotFoundError(f"Dataset path {self.data_path} does not exist")
-        
-        print(f"Loading dataset from {self.data_path}")
-        self._base_dataset = ImageFolder(root=self.data_path, transform=None)
-        self.dataset = self._base_dataset
-        
-        self.load_labels()
-        
-        self.num_classes = len(self.dataset.classes)
-        self.class_names = [self._get_class_name(i) for i in range(self.num_classes)]
-        
-        print(f"Dataset loaded: {len(self.dataset)} samples, {self.num_classes} classes")
-        print(f"Classes: {self.class_names}")
-        
-    def split_data(self):
-        
-        if self._base_dataset is None:
-            raise ValueError("Dataset not loaded. Call load_data() first.")
-        
-        print(f"Splitting dataset into train, val, and test sets")
-        
-        indices = list(range(len(self._base_dataset)))
-        
-        train_idx, temp_idx = train_test_split(
-            indices,
-            test_size=1 - self.train_split,
-            stratify=[self._base_dataset.targets[i] for i in indices]
-        )
-        val_idx, test_idx   = train_test_split(
-            temp_idx,
-            test_size=self.val_split /(1 - self.train_split),
-            stratify=[self._base_dataset.targets[i] for i in temp_idx]
-        )
-
-        # Build three datasets with their own transforms and then subset by the same indices
-        train_full = ImageFolder(root=self.data_path, transform=self.train_transform)
-        eval_full  = ImageFolder(root=self.data_path, transform=self.eval_transform)
-
-        self.train_dataset = Subset(train_full, train_idx)
-        self.val_dataset   = Subset(eval_full,  val_idx)
-        self.test_dataset  = Subset(eval_full,  test_idx)
-        
-        print(f"Train dataset: {len(self.train_dataset)} samples")
-        print(f"Val dataset: {len(self.val_dataset)} samples")
-        print(f"Test dataset: {len(self.test_dataset)} samples")
-        
-    def create_loaders(self):
-        if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
-            raise ValueError("Train, val, and test datasets not provided")
-        
-        use_cuda = torch.cuda.is_available()
-        pin = use_cuda
-        # Clamp workers/prefetch to avoid shared-memory exhaustion
-        effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
-        persistent = False  # safer for stability across restarts
-        prefetch = int(os.environ.get("PREFETCH_FACTOR", "2")) if effective_workers > 0 else None
-
-        self.train_loader = DataLoader(
-            self.train_dataset, 
-            batch_size=self.batch_size, 
-            shuffle=True,  
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
-        
-        self.val_loader = DataLoader(
-            self.val_dataset,  
-            batch_size=self.batch_size, 
-            shuffle=False, 
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
-        
-        self.test_loader  = DataLoader(
-            self.test_dataset,  
-            batch_size=self.batch_size, 
-            shuffle=False, 
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
-        
-    #? ------------------------ Setup -------------------------
-        
-    def setup(self):
-        self.load_data()
-        self.split_data()
-        self.create_loaders()
-        return self.train_loader, self.val_loader, self.test_loader
-    
-    
-    
-
     
 #? -------------------------------------------------------------- #
-#?                         Model Manager                          #
+#?                        Model - AlexNet                         #
 #? -------------------------------------------------------------- #
         
-class ModelManager():
+class AlexNet():
     def __init__(self,
                  model       : Optional[torch.nn.Module]        = None,
                  device      : Optional[torch.device]           = None,
@@ -475,10 +265,9 @@ class ModelManager():
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
-                from pathlib import Path
-                checkpoints_dir = Path("checkpoints")
-                checkpoints_dir.mkdir(parents=True, exist_ok=True)
-                best_ckpt_path = checkpoints_dir / "best_model.pth"
+                # ensure directory exists and save to configured checkpoint path
+                CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+                best_ckpt_path = CHECKPOINT_PATH
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
@@ -501,10 +290,8 @@ class ModelManager():
                 
             # Milestone checkpoints
             if (epoch + 1) in [25, 50, 75, 100]:
-                from pathlib import Path
-                checkpoints_dir = Path("checkpoints")
-                checkpoints_dir.mkdir(parents=True, exist_ok=True)
-                ckpt_path = checkpoints_dir / f"checkpoint_epoch_{epoch+1}.pth"
+                CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+                ckpt_path = CHECKPOINT_PATH.parent / f"checkpoint_epoch_{epoch+1}.pth"
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
@@ -580,16 +367,20 @@ class ModelManager():
         return test_loss, test_accuracy, test_accuracy5
     
     def load_model(self, model_path: str):
-        # Try exact path first; if missing, try under checkpoints/
-        resolved_path = model_path
-        if not os.path.exists(resolved_path):
-            alt_path = os.path.join("checkpoints", os.path.basename(model_path))
-            if os.path.exists(alt_path):
-                resolved_path = alt_path
-        if not os.path.exists(resolved_path):
+        # Normalize to Path and fallback to configured checkpoint path
+        path = Path(model_path)
+        if not path.exists():
+            print(f"Path {path} does not exist, checking {CHECKPOINT_PATH}")
+            if CHECKPOINT_PATH.exists():
+                path = CHECKPOINT_PATH
+            else:
+                alt_path = CHECKPOINT_PATH.parent / path.name
+                if alt_path.exists():
+                    path = alt_path
+        if not path.exists():
             raise FileNotFoundError(f"Model path {model_path} does not exist")
 
-        checkpoint = torch.load(resolved_path, map_location=self.device)
+        checkpoint = torch.load(path.as_posix(), map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         # Restore history if available so plots are not empty
         history = checkpoint.get('history')
@@ -600,7 +391,7 @@ class ModelManager():
             self.val_accuracies = history.get('val_accuracies', [])
             self.train_top5_accuracies = history.get('train_top5_accuracies', [])
             self.val_top5_accuracies = history.get('val_top5_accuracies', [])
-        print(f"Model loaded from {resolved_path}")
+        print(f"Model loaded from {path}")
         print(f"Best validation loss: {checkpoint['loss']:.4f}")
         print(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
         
@@ -650,36 +441,36 @@ class ModelManager():
                 
 if __name__ == "__main__":
 
-    data_path = os.path.expanduser("~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1")
-    
     # detect device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     print("Optimizations applied: Mixed Precision, Optimized DataLoader, Larger Batch Size")
 
     data_manager = DataManager(
-        data_path=data_path,
-        batch_size=512,
-        num_workers=12
+        data_path=DATA_PATH,
+        labels_path=LABELS_PATH,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKERS,
+        train_split=TRAIN_SPLIT,
+        val_split=VAL_SPLIT,
+        split_seed=SPLIT_SEED,
     )
     data_manager.setup()
     
-    model_manager = ModelManager(
+    model_manager = AlexNet(
         data_manager=data_manager,
-        num_epochs=100,
-        learning_rate=6e-4,
-        weight_decay=3e-4,
-        dropout_rate=0.3,
-        patience=15,
-        label_smoothing=0.1
+        num_epochs=NUM_EPOCHS,
+        learning_rate=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+        dropout_rate=DROPOUT_RATE,
+        patience=PATIENCE,
+        label_smoothing=LABEL_SMOOTHING
     )
     
     # Optional warm-start from best checkpoint for fine-tuning
-    if os.environ.get("FINETUNE_FROM_BEST", "0") == "1" and (
-        os.path.exists("best_model.pth") or os.path.exists(os.path.join("checkpoints", "best_model.pth"))
-    ):
+    if os.environ.get("FINETUNE_FROM_BEST", "0") == "1" and CHECKPOINT_PATH.exists():
         try:
-            model_manager.load_model("best_model.pth")
+            model_manager.load_model(CHECKPOINT_PATH.as_posix())
             print("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
         except Exception as e:
             print(f"Could not warm-start from best_model.pth: {e}")
