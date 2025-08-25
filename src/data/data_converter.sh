@@ -76,7 +76,7 @@ for p in "${inputs[@]}"; do
     echo "File not found: $p" >&2
     continue
   fi
-  if [[ "$QUIET" == "1" ]]; then SILENT=1 python src/data/converter.py "$p"; else python src/data/converter.py "$p"; fi
+  if [[ "$QUIET" == "1" ]]; then SILENT=1 python src/converter.py "$p"; else python src/converter.py "$p"; fi
 done
 
 if $USE_CONDA; then

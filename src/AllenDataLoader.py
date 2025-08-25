@@ -1,14 +1,13 @@
 """
 Packaged Allen datasets loader/downloader (Nayebi et al.)
 
-- Interface to download/load/inspect packaged PKL datasets
-  provided by Nayebi et al. (`mouse-vision` release), including:
+- Interface to download/load packaged PKL datasets
+  proevided by Nayebi et al. (`mouse-vision` release), including:
     - neuropixels: mouse_neuropixels_visual_data_with_reliabilities.pkl
     - calcium   : mouse_calcium_visual_data_with_reliabilities.pkl
 
 Examples:
   python src/load_data.py --dataset neuropixels --download --verbose
-  python src/load_data.py --dataset neuropixels --inspect --verbose
   python src/load_data.py --dataset calcium --download --verbose
 """
 
@@ -31,7 +30,7 @@ except Exception:
         return iterable
 
 class AllenDataLoader:
-    """Manage downloads, loading, and inspection for Nayebi packaged datasets."""
+    """Manage downloads and loading for Nayebi packaged datasets."""
 
     BASE_DIRNAME = "AllenData"
     URLS: Dict[str, str] = {
@@ -107,13 +106,13 @@ class AllenDataLoader:
         logging.info(f"Downloading {self.dataset} packaged dataset to {dst}")
         return self._stream_download(self.url, dst, desc=f"{self.dataset.capitalize()} PKL")
 
-    def load(self, pkl_path: Optional[str] = None):
+    def load(self, path: Optional[str] = None):
         """Load either a packaged .pkl (legacy) or a converted .zarr store.
 
         If the provided path (or default) ends with .zarr or is a directory with a .zarr suffix,
         it is opened via xarray.open_zarr. Otherwise we fall back to the legacy pickle loaders.
         """
-        path_str = pkl_path or self.default_path
+        path_str = path or self.default_path
         path = Path(path_str)
         if not (path.is_file() or path.is_dir()):
             raise FileNotFoundError(f"Dataset not found at {path}. For PKL, run with --download first.")
@@ -175,67 +174,6 @@ class AllenDataLoader:
                     "Install it, e.g.: pip install xarray"
                 ) from e
 
-    def inspect(self, pkl_path: Optional[str] = None) -> None:
-        data = self.load(pkl_path)
-        # Dict-like legacy structure
-        if hasattr(data, 'keys'):
-            keys = list(data.keys())
-            logging.info(f"Top-level keys: {keys}")
-            if 'stimuli' in keys:
-                stim = data['stimuli']
-                try:
-                    shape = getattr(stim, 'shape', None) or (stim.sizes if hasattr(stim, 'sizes') else None)
-                    logging.info(f"stimuli: shape={shape}")
-                except Exception:
-                    pass
-            if 'neural_data' in keys:
-                nd = data['neural_data']
-                try:
-                    areas = list(sorted(set([str(v) for v in nd.visual_area.values])))
-                    logging.info(f"neural_data: visual_areas={areas}")
-                except Exception:
-                    logging.info("neural_data present (xarray) -- unable to list areas with current version")
-            print("Inspection complete. Enable --verbose for detailed logs.")
-            return
-
-        # xarray Dataset (e.g., opened from .zarr)
-        try:
-            import xarray as xr  # type: ignore
-        except Exception:
-            xr = None  # type: ignore
-        if xr is not None and hasattr(data, 'data_vars') and hasattr(data, 'dims'):
-            try:
-                dims_summary = {k: int(v) for k, v in getattr(data, 'sizes', {}).items()}  # type: ignore[attr-defined]
-            except Exception:
-                dims_summary = dict(getattr(data, 'dims', {}))  # fallback representation
-            logging.info(f"xarray.Dataset dims: {dims_summary}")
-            try:
-                vars_list = list(getattr(data, 'data_vars', {}).keys())
-            except Exception:
-                vars_list = []
-            logging.info(f"xarray.Dataset variables: {vars_list}")
-            # Best-effort: specific fields if present
-            try:
-                if 'stimuli' in data:
-                    s = data['stimuli']
-                    logging.info(f"stimuli: shape={getattr(s, 'shape', None)}")
-                if 'neural_data' in data:
-                    nd = data['neural_data']
-                    va = None
-                    try:
-                        va = list(sorted(set([str(v) for v in nd.visual_area.values])))
-                    except Exception:
-                        pass
-                    logging.info(f"neural_data: visual_areas={va}")
-            except Exception:
-                pass
-            print("Inspection complete. Enable --verbose for detailed logs.")
-            return
-
-        # Fallback summary
-        logging.info(f"Loaded object of type {type(data)}; unable to provide detailed inspection with current dependencies.")
-        print("Inspection complete. Enable --verbose for details.")
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Packaged Allen datasets (Nayebi) downloader and loader.",
@@ -276,11 +214,6 @@ def parse_args() -> argparse.Namespace:
         help="Output path for the .pkl (defaults to AllenData/…)",
     )
     parser.add_argument(
-        "--inspect",
-        action="store_true",
-        help="Load the packaged PKL and print a short summary",
-    )
-    parser.add_argument(
         "--path",
         type=str,
         default=None,
@@ -294,9 +227,6 @@ def main() -> None:
     logging.basicConfig(level=(logging.INFO if args.verbose else logging.WARNING), format="%(levelname)s:%(message)s")
     logging.info("Starting PKL dataset manager")
     mgr = AllenDataLoader(dataset=args.dataset)
-    if getattr(args, "inspect", False):
-        mgr.inspect(pkl_path=args.path)
-        return
     if getattr(args, "download", False):
         path = mgr.download(out_path=args.out)
         print(f"Saved {args.dataset} .pkl to {path}")
@@ -304,7 +234,7 @@ def main() -> None:
     # Default behavior: recommend PKL workflow
     raise SystemExit(
         "No action specified. Use --download to fetch the PKL, "
-        "then load it via AllenDataLoader(...).load(), or use --inspect."
+        "then load it via AllenDataLoader(...).load()."
     )
 
 if __name__ == "__main__":
