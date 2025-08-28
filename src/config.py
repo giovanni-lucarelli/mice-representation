@@ -26,16 +26,35 @@ VAL_SPLIT = 0.15
 SPLIT_SEED = 42
 NUM_WORKERS = 12
 
+DATA_DIET = False # not implemented yet
+
 #? ------------- checkpoint path -------------
 CHECKPOINT_PATH = ROOT / "checkpoints" / "best_model.pth"
 
 #? ------------- training constants -------------
 NUM_EPOCHS = 100
-LEARNING_RATE = 3e-4
-WEIGHT_DECAY = 3e-4
+
+OPTIMIZER = "AdamW" # "SGD" or "AdamW"
+
+if OPTIMIZER == "SGD":
+    LEARNING_RATE = 0.01
+    WEIGHT_DECAY = 5e-4
+    
+elif OPTIMIZER == "AdamW":
+    LEARNING_RATE = 3e-4
+    WEIGHT_DECAY = 1e-4
+    
 DROPOUT_RATE = 0.3
 PATIENCE = 15
 LABEL_SMOOTHING = 0.1
+NO_CROP = False
+
+#? ------------- scheduler constants -------------
+SCHEDULER = "ReduceLROnPlateau" # "ReduceLROnPlateau" or "MultiStepLR"
+
+SCHEDULER_MILESTONES = [30, 60, 90]
+SCHEDULER_GAMMA = 0.1
+SCHEDULER_TYPE = "cosine" # "cosine" or "step"
 
 #? ------------- Notebook constants -------------
 DOWNLOAD_DATA = False

@@ -244,7 +244,7 @@ class AllenDataViewer:
                                      out_path: Optional[str] = None,
                                      visual_areas: Optional[Sequence[str]] = None,
                                      fraction_of_max: bool = False,
-                                     time_step_ms: float = 10.0,
+                                     time_step_ms: float = 1.0,
                                      show: bool = False) -> str:
         """Plot split-half reliability over time for each visual area.
 
@@ -323,31 +323,34 @@ class AllenDataViewer:
         cmap = plt.cm.get_cmap("tab10", max(10, len(visual_areas)))
         color_map = {v: cmap(i % cmap.N) for i, v in enumerate(visual_areas)}
 
-        # Build time axis and infer units
-        ms_axis = False
+        # Build time axis
         if time_dim in getattr(rel, "coords", {}):
             try:
-                coord = rel.coords[time_dim]
-                time_values = np.asarray(coord).astype(float)
-                units_attr = str(getattr(coord, "attrs", {}).get("units", "")).lower()
-                if "ms" in units_attr:
-                    ms_axis = True
+                time_values = np.asarray(rel.coords[time_dim]).astype(float)
             except Exception:
                 time_values = np.arange(rel.sizes[time_dim], dtype=float) * float(time_step_ms)
-                ms_axis = True
         elif "time_relative_to_stimulus_onset" in getattr(self.ds, "data_vars", {}):
             try:
-                coord = self.ds["time_relative_to_stimulus_onset"]
-                time_values = np.asarray(coord).astype(float)
-                units_attr = str(getattr(coord, "attrs", {}).get("units", "")).lower()
-                if "ms" in units_attr:
-                    ms_axis = True
+                time_values = np.asarray(self.ds["time_relative_to_stimulus_onset"]).astype(float)
             except Exception:
                 time_values = np.arange(rel.sizes[time_dim], dtype=float) * float(time_step_ms)
-                ms_axis = True
         else:
             time_values = np.arange(rel.sizes[time_dim], dtype=float) * float(time_step_ms)
-            ms_axis = True
+
+        # Infer unit: seconds when coming from dataset coordinates (as in Allen data),
+        # otherwise treat as milliseconds when synthesized via time_step_ms
+        use_seconds = False
+        try:
+            if (time_dim in getattr(rel, "coords", {})) or ("time_relative_to_stimulus_onset" in getattr(self.ds, "data_vars", {})):
+                diffs = np.diff(np.asarray(time_values, dtype=float))
+                median_step = float(np.median(diffs)) if diffs.size > 0 else None
+                max_t = float(time_values[-1]) if len(time_values) > 0 else 0.0
+                # Heuristic: dataset coords are in seconds (dt <= 1s and range <= 10s)
+                use_seconds = (median_step is None) or (median_step <= 1.0 and max_t <= 10.0)
+            else:
+                use_seconds = False
+        except Exception:
+            use_seconds = False
 
         fig, ax = plt.subplots(figsize=(8, 5))
 
@@ -384,29 +387,37 @@ class AllenDataViewer:
                     sem_vals = sem_vals / max_val
 
                 color = color_map.get(area, None)
-                ax.plot(time_values, median_vals, color=color, linewidth=1.5, label=str(area))
                 ax.fill_between(time_values,
-                                median_vals - sem_vals,
                                 median_vals + sem_vals,
-                                alpha=0.3,
+                                median_vals - sem_vals,
+                                label=str(area),
+                                alpha=0.8,
                                 color=color)
             except Exception as e:
                 print(f"Skipping area '{area}' due to error: {e}")
                 continue
 
-        ax.set_xlabel("Time relative to stimulus onset (ms)" if ms_axis else "Time relative to stimulus onset")
+        ax.set_xlabel("Time relative to stimulus onset (s)" if use_seconds else "Time relative to stimulus onset (ms)")
         ax.set_ylabel("Fraction of Maximum Split-half Reliability (Pearson's R)" if fraction_of_max else "Split-half Reliability (Pearson's R)")
         ax.legend(loc="upper left", frameon=False)
         ax.spines["right"].set_visible(False)
         ax.spines["top"].set_visible(False)
 
-        # Ticks every 40 ms if possible, to mirror the notebook's aesthetics
+        # Ticks every 40 ms (0.04 s) if possible, aligned to data range
         try:
-            if ms_axis:
-                step = 40.0
-                max_t = float(time_values[-1]) if len(time_values) > 0 else 0.0
-                tick_vals = np.arange(0.0, max_t + step, step)
+            if len(time_values) > 0:
+                min_t = float(time_values[0])
+                max_t = float(time_values[-1])
+                step = 0.04 if use_seconds else 40.0  # 40 ms in seconds vs milliseconds
+                # Start and end ticks inside data bounds to avoid empty ticks at edges
+                start = float(np.ceil((min_t + 1e-12) / step) * step)
+                end = float(np.floor((max_t - 1e-12) / step) * step)
+                if end < start:
+                    # Fallback: single tick at nearest value within range
+                    start = end = float(np.round(min_t / step) * step)
+                tick_vals = np.arange(start, end + step * 0.5, step)
                 ax.set_xticks(tick_vals)
+                ax.set_xlim(min_t, max_t)
         except Exception:
             pass
 

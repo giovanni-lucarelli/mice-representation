@@ -28,23 +28,23 @@ except Exception:
         
 class AlexNet():
     def __init__(self,
-                 model       : Optional[torch.nn.Module]        = None,
-                 device      : Optional[torch.device]           = None,
-                 criterion   : Optional[torch.nn.Module]        = None,
-                 optimizer   : Optional[torch.optim.Optimizer]  = None,
-                 data_manager: Optional[DataManager]            = None,
-                 num_epochs  : int                              = 100,
-                 learning_rate: float                           = 0.0003,
-                 weight_decay: float                            = 3e-4,
-                 dropout_rate: float                            = 0.5,
-                 patience    : int                              = 10,
-                 label_smoothing: float                         = 0.1
+                 model       : Optional[torch.nn.Module]                = None,
+                 device      : Optional[torch.device]                   = None,
+                 criterion   : Optional[torch.nn.Module]                = None,
+                 data_manager: Optional[DataManager]                    = None,
+                 optimizer   : Optional[torch.optim.Optimizer] | str    = OPTIMIZER,
+                 num_epochs  : int                                      = NUM_EPOCHS,
+                 learning_rate: float                                   = LEARNING_RATE,
+                 weight_decay: float                                    = WEIGHT_DECAY,
+                 dropout_rate: float                                    = DROPOUT_RATE,
+                 patience    : int                                      = PATIENCE,
+                 label_smoothing: float                                 = LABEL_SMOOTHING
              ):
         
         self.model        : Optional[torch.nn.Module]       = model
         self.device       : Optional[torch.device]          = device
         self.criterion    : Optional[torch.nn.Module]       = criterion
-        self.optimizer    : Optional[torch.optim.Optimizer] = optimizer
+        self.optimizer    : Optional[torch.optim.Optimizer] = None # set below
         self.num_epochs   : int                             = num_epochs
         self.data_manager : Optional[DataManager]           = data_manager
         self.learning_rate: float                           = learning_rate
@@ -71,12 +71,28 @@ class AlexNet():
         if criterion is None:
             self.criterion = CrossEntropyLoss(label_smoothing=label_smoothing)
         
-        if optimizer is None:
-            self.optimizer = optim.AdamW(
-                self.model.parameters(), 
-                lr=self.learning_rate,
-                weight_decay=self.weight_decay
-            )
+        if isinstance(optimizer, str):
+            if optimizer == "SGD":
+                self.optimizer = optim.SGD(
+                    self.model.parameters(), 
+                    lr=self.learning_rate,
+                    weight_decay=self.weight_decay,
+                    momentum=0.9
+                )
+
+            elif optimizer == "AdamW":
+                self.optimizer = optim.AdamW(
+                    self.model.parameters(),
+                    lr=self.learning_rate,
+                    weight_decay=self.weight_decay
+                )
+        elif isinstance(optimizer, torch.optim.Optimizer):
+            self.optimizer = optimizer
+        else:
+            raise ValueError(f"Invalid optimizer: {optimizer}")
+        
+        if self.optimizer is None:
+            raise ValueError("Error: Optimizer not set")
             
         if data_manager is None:
             raise ValueError("Data manager not provided")
@@ -90,7 +106,7 @@ class AlexNet():
             input_size = int(os.environ.get("INPUT_SIZE", "64"))
             # For 64×64, shrink avgpool to 1×1 (Nayebi-style). Keep default for larger inputs
             if input_size <= 64:
-                self.model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+               self.model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
             dummy_input = torch.randn(1, 3, input_size, input_size)
             with torch.no_grad():
                 # Get features before classifier
@@ -232,12 +248,21 @@ class AlexNet():
         patience_counter = 0
         
         # Learning rate scheduler
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, 
-            mode='min', 
-            factor=0.5, 
-            patience=5
-        )
+        if SCHEDULER == "ReduceLROnPlateau":
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, 
+                mode='min', 
+                factor=0.5, 
+                patience=5
+            )
+        elif SCHEDULER == "MultiStepLR":
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                self.optimizer,
+                milestones=SCHEDULER_MILESTONES,
+                gamma=SCHEDULER_GAMMA
+            )
+        else:
+            raise ValueError(f"Invalid scheduler: {SCHEDULER}")
         
         for epoch in range(self.num_epochs):
             
@@ -248,7 +273,10 @@ class AlexNet():
             val_loss, val_acc, val_acc5 = self.validate_epoch()
             
             # Update learning rate based on validation loss
-            scheduler.step(val_loss)
+            if SCHEDULER == "ReduceLROnPlateau":
+                scheduler.step(val_loss)
+            elif SCHEDULER == "MultiStepLR":
+                scheduler.step()
             
             self.train_losses.append(train_loss)
             self.val_losses.append(val_loss)

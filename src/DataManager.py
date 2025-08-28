@@ -14,6 +14,12 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 from typing import Optional, Dict
 
+# Optional WebDataset import; when unavailable, we fall back to ImageFolder
+try:
+    import webdataset as wds  # type: ignore
+except Exception:  # pragma: no cover
+    wds = None  # allows type checks without hard dependency
+
 import os
 from sklearn.model_selection import train_test_split
 from torchvision.datasets import ImageFolder
@@ -34,12 +40,13 @@ class DataManager():
     Attributes are populated after the corresponding steps (load, split, create loaders).
     """
     def __init__(self,
+                 dataset_name   : str                           = "imagenet", # "imagenet" or "miniimagenet"
                  data_path      : str                           = DATA_PATH, 
                  labels_path    : str                           = LABELS_PATH,
-                 batch_size     : int                           = 128,
+                 batch_size     : int                           = 512,
                  train_transform: Optional[transforms.Compose]  = None,
                  eval_transform : Optional[transforms.Compose]  = None,
-                 num_workers    : int                           = 4,
+                 num_workers    : int                           = 8,
                  train_split    : float                         = 0.7,
                  val_split      : float                         = 0.15,
                  split_seed     : int                           = SPLIT_SEED):
@@ -50,6 +57,7 @@ class DataManager():
         - If no transforms are provided, sensible defaults for 64x64 images are used.
         - split_seed controls reproducible shuffling in dataset splits.
         """
+        self.dataset_name = dataset_name
         
         self.data_path = Path(data_path)
         self.labels_path = Path(labels_path)
@@ -60,15 +68,21 @@ class DataManager():
         self.split_seed = split_seed
         
         if train_transform is None:
+            
+            transforms_list = []
             # Train transform: resize, light augmentation, tensor, normalization
-            self.train_transform = transforms.Compose([
-                transforms.Resize((64, 64)),   # direct resize; no random crop (?)
+            if NO_CROP:
+                transforms_list.append(transforms.Resize((64, 64)))   # direct resize; no random crop (?)
+            else:
+                transforms_list.append(transforms.RandomResizedCrop(64, scale=(0.08, 1.0))) # Standard per ImageNet
+            transforms_list.extend([
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225]),
             ])
+            self.train_transform = transforms.Compose(transforms_list)
         else:
             self.train_transform = train_transform
 
@@ -146,64 +160,128 @@ class DataManager():
         except KeyError:
             raise ValueError(f"Class name '{class_name}' not found in labels.")
         
+    def _is_remote_spec(self, path: str) -> bool:
+        """Return True if the provided path looks like a remote/sharded WebDataset spec."""
+        p = str(path)
+        return (
+            p.startswith("http://")
+            or p.startswith("https://")
+            or p.startswith("s3://")
+            or p.endswith(".tar")
+            or ".tar" in p  # brace expansion like {...}.tar
+        )
+
     def load_data(self):
-        """Create base `ImageFolder` dataset and populate class metadata."""
-        if not self.data_path.exists():
-            raise FileNotFoundError(f"Dataset path {self.data_path} does not exist")
-        
-        print(f"Loading dataset from {self.data_path}")
-        self._base_dataset = ImageFolder(root=self.data_path, transform=None)  # raw dataset without transforms
-        self.dataset = self._base_dataset
-        
-        self.load_labels()
-        
-        self.num_classes = len(self.dataset.classes)
-        self.class_names = [self._get_class_name(i) for i in range(self.num_classes)]
-        
-        print(f"Dataset loaded: {len(self.dataset)} samples, {self.num_classes} classes")
-        print(f"Classes: {self.class_names}")
+        """Create base dataset from a local path (ImageFolder) or a remote URL spec (WebDataset).
+
+        When using WebDataset, this method creates a streaming dataset that yields (image, class)
+        tuples decoded as PIL images, which will then be transformed downstream.
+        """
+        path_str = str(self.data_path)
+        use_wds = wds is not None and self._is_remote_spec(path_str)
+
+        if use_wds:
+            print(f"Loading WebDataset from {path_str}")
+            # Expect URL pattern of shards, e.g., "https://.../imagenet-train-{0000..1023}.tar"
+            # Decode to PIL so torchvision transforms can be applied later via map_tuple
+            self._base_dataset = (
+                wds.WebDataset(path_str)  # type: ignore[attr-defined]
+                .shuffle(1000)
+                .decode("pil")
+                .to_tuple("jpg;jpeg;png", "cls")
+            )
+            self.dataset = self._base_dataset
+
+            # For ImageNet default
+            self.num_classes = 1000
+            # Length is not known a priori in streaming; keep for logging only when available
+            try:
+                _len = len(self.dataset)  # may raise
+                print(f"WebDataset reports length: {_len}")
+            except Exception:
+                pass
+
+            # Labels mapping (optional, for human-readable names)
+            try:
+                self.load_labels()
+            except Exception:
+                pass
+            self.class_names = [self._get_class_name(i) for i in range(self.num_classes)] if self.id_to_labels else None
+            print(f"Dataset ready (WebDataset). {self.num_classes} classes.")
+
+        else:
+            if not self.data_path.exists():
+                raise FileNotFoundError(f"Dataset path {self.data_path} does not exist")
+
+            print(f"Loading ImageFolder from {self.data_path}")
+            self._base_dataset = ImageFolder(root=self.data_path, transform=None)
+            self.dataset = self._base_dataset
+
+            self.load_labels()
+
+            self.num_classes = len(self.dataset.classes)
+            self.class_names = [self._get_class_name(i) for i in range(self.num_classes)]
+
+            print(f"Dataset loaded: {len(self.dataset)} samples, {self.num_classes} classes")
+            print(f"Classes: {self.class_names}")
         
     def split_data(self):
-        """Stratified split into train/val/test while keeping class balance.
+        """Create splits.
 
-        Two-step split:
-        1) train vs temp using `train_split`;
-        2) val vs test from temp using relative share given by `val_split`.
+        - For local ImageFolder, perform stratified splits as before.
+        - For WebDataset, assume external shard lists define train/val/test and apply transforms directly.
         """
-        
+
         if self._base_dataset is None:
             raise ValueError("Dataset not loaded. Call load_data() first.")
-        
-        print(f"Splitting dataset into train, val, and test sets")
-        
-        indices = list(range(len(self._base_dataset)))
-        
-        train_idx, temp_idx = train_test_split(
-            indices,
-            test_size=1 - self.train_split,
-            stratify=[self._base_dataset.targets[i] for i in indices],  # preserve class distribution
-            shuffle=True,
-            random_state=self.split_seed
-        )
-        val_idx, test_idx   = train_test_split(
-            temp_idx,
-            test_size=self.val_split /(1 - self.train_split),
-            stratify=[self._base_dataset.targets[i] for i in temp_idx],  # stratify again on remaining pool
-            shuffle=True,
-            random_state=self.split_seed
-        )
 
-        # Build three datasets with their own transforms, then subset using the same indices
-        train_full = ImageFolder(root=self.data_path, transform=self.train_transform)
-        eval_full  = ImageFolder(root=self.data_path, transform=self.eval_transform)
+        is_wds = wds is not None and isinstance(self.dataset, wds.WebDataset)
 
-        self.train_dataset = Subset(train_full, train_idx)
-        self.val_dataset   = Subset(eval_full,  val_idx)
-        self.test_dataset  = Subset(eval_full,  test_idx)
-        
-        print(f"Train dataset: {len(self.train_dataset)} samples")
-        print(f"Val dataset: {len(self.val_dataset)} samples")
-        print(f"Test dataset: {len(self.test_dataset)} samples")
+        if is_wds:
+            print("WebDataset: applying transforms to training stream. Validation/Test should be provided via separate shard URLs.")
+
+            def _id(x):
+                return x
+
+            img_tf = self.train_transform if self.train_transform is not None else _id
+            self.train_dataset = self._base_dataset.map_tuple(img_tf, _id)
+            self.val_dataset = None
+            self.test_dataset = None
+
+            print("Train dataset: N/A (streaming WebDataset)")
+            print("Val dataset: N/A (provide validation shard URLs)")
+            print("Test dataset: N/A (provide test shard URLs)")
+
+        else:
+            print(f"Splitting dataset into train, val, and test sets")
+
+            indices = list(range(len(self._base_dataset)))
+
+            train_idx, temp_idx = train_test_split(
+                indices,
+                test_size=1 - self.train_split,
+                stratify=[self._base_dataset.targets[i] for i in indices],
+                shuffle=True,
+                random_state=self.split_seed
+            )
+            val_idx, test_idx = train_test_split(
+                temp_idx,
+                test_size=self.val_split / (1 - self.train_split),
+                stratify=[self._base_dataset.targets[i] for i in temp_idx],
+                shuffle=True,
+                random_state=self.split_seed
+            )
+
+            train_full = ImageFolder(root=self.data_path, transform=self.train_transform)
+            eval_full = ImageFolder(root=self.data_path, transform=self.eval_transform)
+
+            self.train_dataset = Subset(train_full, train_idx)
+            self.val_dataset = Subset(eval_full, val_idx)
+            self.test_dataset = Subset(eval_full, test_idx)
+
+            print(f"Train dataset: {len(self.train_dataset)} samples")
+            print(f"Val dataset: {len(self.val_dataset)} samples")
+            print(f"Test dataset: {len(self.test_dataset)} samples")
         
     def create_loaders(self):
         """Instantiate PyTorch `DataLoader`s with safe defaults.
@@ -212,45 +290,60 @@ class DataManager():
         - `persistent_workers` disabled for stability across restarts.
         - `prefetch_factor` configurable via env var when workers > 0.
         """
-        if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
-            raise ValueError("Train, val, and test datasets not provided")
-        
         use_cuda = torch.cuda.is_available()
         pin = use_cuda
-        # Clamp workers/prefetch to avoid shared-memory exhaustion
         effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
-        persistent = False  # safer for stability across restarts
+        persistent = False
         prefetch = int(os.environ.get("PREFETCH_FACTOR", "2")) if effective_workers > 0 else None
 
-        self.train_loader = DataLoader(
-            self.train_dataset, 
-            batch_size=self.batch_size, 
-            shuffle=True,  
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
-        
-        self.val_loader = DataLoader(
-            self.val_dataset,  
-            batch_size=self.batch_size, 
-            shuffle=False, 
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
-        
-        self.test_loader  = DataLoader(
-            self.test_dataset,  
-            batch_size=self.batch_size, 
-            shuffle=False, 
-            num_workers=effective_workers,
-            pin_memory=pin,
-            persistent_workers=persistent,  # stability over absolute throughput
-            prefetch_factor=prefetch
-        )
+        is_wds = wds is not None and isinstance(self.train_dataset, wds.WebDataset)
+
+        if is_wds:
+            # In WebDataset, batching happens in the pipeline; loaders do not re-batch/shuffle
+            train_dataset_batched = self.train_dataset.batched(self.batch_size, partial=False)
+            self.train_loader = wds.WebLoader(  # type: ignore[attr-defined]
+                train_dataset_batched,
+                batch_size=None,
+                shuffle=False,
+                num_workers=effective_workers,
+                pin_memory=pin,
+            )
+
+            self.val_loader = None
+            self.test_loader = None
+        else:
+            if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
+                raise ValueError("Train, val, and test datasets not provided")
+
+            self.train_loader = DataLoader(
+                self.train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                num_workers=effective_workers,
+                pin_memory=pin,
+                persistent_workers=persistent,
+                prefetch_factor=prefetch,
+            )
+
+            self.val_loader = DataLoader(
+                self.val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=effective_workers,
+                pin_memory=pin,
+                persistent_workers=persistent,
+                prefetch_factor=prefetch,
+            )
+
+            self.test_loader = DataLoader(
+                self.test_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=effective_workers,
+                pin_memory=pin,
+                persistent_workers=persistent,
+                prefetch_factor=prefetch,
+            )
         
     #? ------------------------ Setup -------------------------
         
