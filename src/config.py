@@ -11,16 +11,18 @@ to the repository layout to ensure portability and correctness.
 SRC_DIR = Path(__file__).resolve().parent
 ROOT = SRC_DIR.parent
 
-#? ------------- data constants -------------
+#? ------------- Allen data constants -------------
 NEUROPIXELS_PKL_URL: str = "https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl"
 CALCIUM_PKL_URL: str = "https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_calcium_visual_data_with_reliabilities.pkl"
 ZARR_NEUROPIXELS = ROOT / "AllenData/neuropixels.zarr"
 ZARR_CALCIUM = ROOT / "AllenData/calcium.zarr"
 
-DATA_PATH = Path(os.path.expanduser("~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1"))
+#? ------------- dataset constants -------------
+# MiniImageNet dataset
+MINI_IMAGENET_PATH = Path(os.path.expanduser("~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1"))
 LABELS_PATH = SRC_DIR / "data" / "labels.txt"
 
-BATCH_SIZE = 512
+BATCH_SIZE = 256
 TRAIN_SPLIT = 0.7
 VAL_SPLIT = 0.15
 SPLIT_SEED = 42
