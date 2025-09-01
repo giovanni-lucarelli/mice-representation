@@ -11,6 +11,15 @@ from random import seed
 
 from typing import List, Tuple, Optional, Callable
 
+# Respect project-wide device flag when available
+try:
+    from ..config import USE_CUDA  # type: ignore
+except Exception:
+    try:
+        from config import USE_CUDA  # type: ignore
+    except Exception:
+        USE_CUDA = True
+
 def exists(var):
     return var is not None
 
@@ -78,7 +87,7 @@ def get_info(
     hook_handles = [l.register_forward_hook(info) for l in layers]
 
     # Pass a mock up input into the network to trigger the hooks
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if (USE_CUDA and torch.cuda.is_available()) else 'cpu')
     
     model = model.to(device)
     inp = torch.zeros(inp_shape).to(device)

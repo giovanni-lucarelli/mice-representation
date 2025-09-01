@@ -31,24 +31,48 @@ DEFAULT_TRANSLATE = (0, 0)#(0.158, 0.200)  # (x frac, y frac)
 # Keys are spatial frequency in cycles/deg; values are contrast thresholds (Michelson, 0..1).
 # SF are from Prusky & Douglas 2006, thresholds match various papers.
 MOUSE_CSF_TARGET = {
-    
-    0.031: 0.23,
-   
-    0.066: 0.04,  
-    0.098: 0.05,
-    
+    0.31: 0.23,
+    0.22: 0.105,
     0.11: 0.07,
-    0.22:0.105,
-    0.31:0.23
+    0.098: 0.05,
+    0.066: 0.04,
+    0.031: 0.23,
 }
 
 # Search grids for blur/noise fitting (sigma in pixels at pre-warp resolution; noise is Gaussian std in [0,1] tensor space)
-BLUR_SIGMA_GRID = np.array([0, 1, 2, 4, 8,])     # px - uniformly sampled discrete values
-NOISE_STD_GRID  = np.linspace(0.01, 0.5, 8)   # unitless (tensor scale)
+# BLUR_SIGMA_GRID = np.array([0, 1, 2, 4, 8,])     # px - uniformly sampled discrete values
+# NOISE_STD_GRID  = np.linspace(0.01, 0.5, 8)   # unitless (tensor scale)
+
+# In mouse_params.py, prova a sostituire le griglie con queste:
+
+# BLUR_SIGMA_GRID = np.linspace(1.7, 2.3, 6)
+# # BLUR_SIGMA_GRID = np.array([1, 2, 4, 12])
+# BLUR_KER_GRID = np.array([29])
+# # Restrict noise to a lower, more realistic range to avoid the fit collapsing to high-noise solutions
+# NOISE_STD_GRID  = np.linspace(0.15, 0.21, 6)
+# PATCH_SIZE_GRID = np.array([12, 16, 20, 24])
+
+# src/pipeline/mouse_params.py
+# BLUR_SIGMA_GRID = np.arange(1.80, 1.90, 0.02)  # narrow around best ~1.84
+# NOISE_STD_GRID  = np.array([0.18, 0.19, 0.20, 0.21, 0.22])  # narrow around best ~0.20
+# BLUR_KER_GRID   = np.array([29])        # fixed (sufficient radius for all σ)
+# PATCH_SIZE_GRID = np.array([24, 28, 32])  # check local neighborhood of 16
+
+# src/pipeline/mouse_params.py
+# BLUR_SIGMA_GRID = np.array([1.8, 1.9, 2.0])
+# NOISE_STD_GRID  = np.array([0.18, 0.20, 0.22])
+# BLUR_KER_GRID   = np.array([29])
+# PATCH_SIZE_GRID = np.array([24, 28, 32])
+
+BLUR_SIGMA_GRID = np.linspace(1.8, 3.8, 21)
+BLUR_KER_GRID = np.array([29])
+NOISE_STD_GRID  = np.linspace(0.15, 0.35, 21)
+PATCH_SIZE_GRID = np.array([24, 28, 32, 36, 40])
 
 # Grating detection fitting defaults
 N_SAMPLES_PER_CLASS = 5000     # per SF per contrast (keep reasonable to avoid long runs; increase if you want)
-CONTRAST_SWEEP = np.linspace(0, 1, 8)    # Michelson contrasts for psychometric curves
+# Use logarithmically spaced contrasts for a smoother, more precise threshold estimate near low contrasts
+CONTRAST_SWEEP = np.geomspace(1e-3, 1.0, 20)    # Michelson contrasts for psychometric curves (exclude 0)
 PATCH_SIZE = 28                # patch side in pixels for patchwise std feature
 THRESH_CRITERION = 0.75        # 50% correct criterion for threshold
 SEED = 1234

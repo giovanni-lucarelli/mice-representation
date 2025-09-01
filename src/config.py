@@ -30,6 +30,10 @@ NUM_WORKERS = 12
 
 DATA_DIET = False # not implemented yet
 
+#? ------------- device control -------------
+# Set to False to force CPU even if CUDA is available
+USE_CUDA: bool = True
+
 #? ------------- checkpoint path -------------
 CHECKPOINT_PATH = ROOT / "checkpoints" / "best_model.pth"
 

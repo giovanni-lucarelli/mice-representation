@@ -1,12 +1,13 @@
 import math
 import torch
 import torch.nn as nn
+from torchvision import transforms
 import torch.nn.functional as F
 from typing import Tuple, Union, Dict
 
 from .transforms import (
     ToTensor, SquarePad, Resize, RandomImgAffine,
-    GaussianBlur as _GaussianBlur, GaussianNoise as _GaussianNoise, Normalize, RgbToGray
+    GaussianBlur as _GaussianBlur, GaussianNoise as _GaussianNoise, Normalize, RgbToGray, RgbToMouseLike
 )
 from .mouse_params import FOV_DEG, DEFAULT_ROLL_DEG, DEFAULT_TRANSLATE
 
@@ -74,25 +75,40 @@ def mouse_transform(
     blur_ker: int = 11,
     noise_std: float = 0.08,
     normalize: str = 'imagenet',
-    apply_motion: bool = True,
+    apply_motion: bool = False,
     apply_csf: bool = True,
     apply_warp: bool = False,
     noise_rng: torch.Generator | None = None,
     affine_rng: torch.Generator | None = None,
     to_gray: bool = True,
+    to_mouse: bool = False,
     gray_keep_channels: bool = True,
-) -> nn.Sequential:
+    resize: bool = True,
+    square_pad: bool = False,
+) -> transforms.Compose:
     """
     Mouse-calibrated preprocessing:
     1) SquarePad + optional spherical warping to 120x95 deg FOV
     2) Random retinal motion (yaw/pitch -> translate (not used), roll -> rotate(not used))
     3) Gaussian blur + Gaussian noise (CSF-matched)
     """
-    ops = [ToTensor(), SquarePad(scale=img_scale_fact, preserve=False)]
+    if to_mouse:
+        if to_gray:
+            raise ValueError("to_gray and to_mouse cannot be True at the same time")
+        if not gray_keep_channels:
+            import warnings
+            warnings.warn("gray_keep_channels is ignored when to_mouse=True; output is always 3 channels")
+    
+    ops = [ToTensor()]
+    
+    if square_pad:
+        ops.append(SquarePad(scale=img_scale_fact, preserve=False))
+    
     if apply_warp:
         ops.append(SphericalWarp(FOV_DEG))
 
-    ops.append(Resize(img_size))
+    if resize:
+        ops.append(Resize(img_size))
 
     if apply_motion:
         ops.append(RandomImgAffine(
@@ -112,5 +128,8 @@ def mouse_transform(
         ])
     if to_gray:
         ops.append(RgbToGray(keep_channels=3 if gray_keep_channels else 1))
+    if to_mouse:
+        ops.append(RgbToMouseLike(decline=False))
+        
     ops.append(Normalize(normalize))
-    return nn.Sequential(*ops)
+    return transforms.Compose(ops)

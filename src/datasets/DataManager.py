@@ -20,6 +20,9 @@ from torchvision.datasets import ImageFolder
 
 from pathlib import Path
 
+from datasets.mini_imagenet import MiniImageNet
+from datasets.adapters import AsTupleDataset
+
 #? -------------------------------------------------------------- #
 #?                         Data Manager                           #
 #? -------------------------------------------------------------- #
@@ -151,7 +154,17 @@ class DataManager():
             raise FileNotFoundError(f"Dataset path {self.data_path} does not exist")
 
         print(f"Loading ImageFolder from {self.data_path}")
-        self._base_dataset = ImageFolder(root=self.data_path, transform=None)
+        # If the dataset path contains predefined splits (train/val or train/test),
+        # use the train split as the base dataset to avoid treating split folders as classes.
+        split_train = self.data_path / "train"
+        split_val = self.data_path / "val"
+        split_test = self.data_path / "test"
+        if split_train.is_dir() and (split_val.is_dir() or split_test.is_dir()):
+            base_root = split_train
+        else:
+            base_root = self.data_path
+
+        self._base_dataset = ImageFolder(root=base_root, transform=None)
         self.dataset = self._base_dataset
 
         self.load_labels()
@@ -161,12 +174,39 @@ class DataManager():
 
         print(f"Dataset loaded: {len(self.dataset)} samples, {self.num_classes} classes")
         print(f"Classes: {self.class_names}")
+
+    def _has_predefined_splits(self) -> bool:
+        """Return True if dataset directory contains train/val or train/test folders."""
+        root: Path = self.data_path
+        return (root / "train").is_dir() and ((root / "val").is_dir() or (root / "test").is_dir())
+
+    def _make_split_dataset(self, split: str, transform):
+        """Create a MiniImageNet split dataset wrapped to return (image, label)."""
+        ds = MiniImageNet(
+            root=str(self.data_path),
+            split=split,
+            transform=transform,
+            label_path=str(self.labels_path) if self.labels_path.exists() else None,
+            verbose=False,
+        )
+        return AsTupleDataset(ds)
         
     def split_data(self):
-        """Create stratified train/val/test splits for MiniImageNet."""
+        """Create train/val/test datasets: use predefined splits when available, else stratified split."""
 
         if self._base_dataset is None:
             raise ValueError("Dataset not loaded. Call load_data() first.")
+
+        if self._has_predefined_splits():
+            print("Using predefined dataset splits (train/val/test)")
+            self.train_dataset = self._make_split_dataset("train", self.train_transform)
+            self.val_dataset = self._make_split_dataset("val", self.eval_transform)
+            self.test_dataset = self._make_split_dataset("test", self.eval_transform)
+
+            print(f"Train dataset: {len(self.train_dataset)} samples")
+            print(f"Val dataset: {len(self.val_dataset)} samples")
+            print(f"Test dataset: {len(self.test_dataset)} samples")
+            return
 
         print(f"Splitting dataset into train, val, and test sets")
 
@@ -205,7 +245,7 @@ class DataManager():
         - `persistent_workers` disabled for stability across restarts.
         - `prefetch_factor` configurable via env var when workers > 0.
         """
-        use_cuda = torch.cuda.is_available()
+        use_cuda = USE_CUDA and torch.cuda.is_available()
         pin = use_cuda
         effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
         persistent = False
@@ -252,6 +292,6 @@ class DataManager():
         self.split_data()
         self.create_loaders()
         return self.train_loader, self.val_loader, self.test_loader
-    
-    
-    
+        
+        
+        

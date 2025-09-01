@@ -715,3 +715,30 @@ class RgbToGray(nn.Module):
 
         if isinstance(inp, dict): return {**inp, 'imgs': out}
         return out
+    
+    
+import torch
+import torch.nn as nn
+
+class RgbToMouseLike(nn.Module):
+    def __init__(self, decline: bool = False):
+        super().__init__()
+        self.decline = decline
+        # matrice 3x3: input [R,G,B] → output [R’,G’,B’]
+        self.transform = torch.tensor([
+            [0.2, 0.1, 0.0],   # R'
+            [0.2, 0.8, 0.0],   # G'
+            [0.1, 0.0, 0.9],   # B'
+        ])  # (3,3)
+
+    @torch.no_grad()
+    def forward(self, x: torch.Tensor):
+        if self.decline:
+            return x
+        if x.dim() == 3:   # C,H,W
+            x = x.unsqueeze(0)  # → N,C,H,W
+        assert x.size(1) == 3, "Input deve essere RGB"
+
+        T = self.transform.to(x.device).to(x.dtype)  # (3,3)
+        out = torch.einsum("ij,njhw->nihw", T, x)    # → N,3,H,W
+        return out

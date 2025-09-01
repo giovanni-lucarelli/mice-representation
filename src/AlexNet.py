@@ -56,7 +56,7 @@ class AlexNet():
             self.model = models.alexnet(weights=None)
         
         if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
             print(f"Using device: {self.device}")
             # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
             if self.device.type == 'cuda':
@@ -470,12 +470,12 @@ class AlexNet():
 if __name__ == "__main__":
 
     # detect device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
     print(f"Using device: {device}")
     print("Optimizations applied: Mixed Precision, Optimized DataLoader, Larger Batch Size")
 
     data_manager = DataManager(
-        data_path=DATA_PATH,
+        data_path=MINI_IMAGENET_PATH,
         labels_path=LABELS_PATH,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
