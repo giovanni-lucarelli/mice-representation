@@ -185,13 +185,29 @@ def _extract_patch_std_batch(x_batch: torch.Tensor, patch: int = PATCH_SIZE) -> 
     return stds.cpu().numpy()
 
 def _simulate_detection(size: Tuple[int, int], sf: float, blur_sigma: float, blur_ker: int, noise_std: float,
-                        contrasts: Sequence[float], pca_n: int | None = None, patch_size: int = PATCH_SIZE) -> Tuple[np.ndarray, np.ndarray]:
+                        contrasts: Sequence[float], pca_n: int | None = None, patch_size: int = PATCH_SIZE,
+                        seed: int | None = None, torch_gen: torch.Generator | None = None,
+                        np_rng: np.random.Generator | None = None, deterministic: bool = False
+                       ) -> Tuple[np.ndarray, np.ndarray]:
     """
     VECTORIZED version. Trains/tests an SVM. Data generation is done in batches on GPU.
     """
     device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
+    if deterministic and torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+
+    # Local RNGs to make repeated calls identical with the same seed
+    if torch_gen is None:
+        torch_gen = torch.Generator(device=device)
+        if seed is not None:
+            torch_gen.manual_seed(int(seed))
+    if np_rng is None and seed is not None:
+        np_rng = np.random.default_rng(int(seed))
+
     n_train = N_SAMPLES_PER_CLASS
     n_test = max(200, N_SAMPLES_PER_CLASS // 5)
+    gauss_kernel = _get_gaussian_kernel2d(blur_sigma, blur_ker, device)
 
     def _estimate_chunk_size(n_items: int) -> int:
         if device.type != "cuda":
@@ -207,7 +223,6 @@ def _simulate_detection(size: Tuple[int, int], sf: float, blur_sigma: float, blu
         except Exception:
             return min(256, n_items)
 
-    gauss_kernel = _get_gaussian_kernel2d(blur_sigma, blur_ker, device)
 
     def sample_set_batch(n, is_training):
         half = n // 2
@@ -222,17 +237,18 @@ def _simulate_detection(size: Tuple[int, int], sf: float, blur_sigma: float, blu
         while remaining > 0:
             b = min(chunk, remaining)
             if is_training:
-                c_idx = torch.randint(0, len(contrasts), (b,), device=device)
+                c_idx = torch.randint(0, len(contrasts), (b,), device=device, generator=torch_gen)
                 c_vec = torch.tensor(contrasts, device=device, dtype=torch.float32)[c_idx]
             else:
                 c_vec = torch.full((b,), float(c_test), device=device, dtype=torch.float32)
-            theta = torch.rand(b, device=device, dtype=torch.float32) * math.pi
-            phase = torch.rand(b, device=device, dtype=torch.float32) * (2 * math.pi)
-            with torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda")):
+            theta = torch.rand(b, device=device, dtype=torch.float32, generator=torch_gen) * math.pi
+            phase = torch.rand(b, device=device, dtype=torch.float32, generator=torch_gen) * (2 * math.pi)
+            with torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and not deterministic)):
                 g = _make_grating_batch(size, sf, c_vec, phase, theta)
                 g = _gauss_blur(g, blur_sigma, k=blur_ker, precomputed_kernel=gauss_kernel)
                 if noise_std > 0:
-                    g = (g + torch.randn_like(g) * noise_std).clamp(0.0, 1.0)
+                    noise = torch.randn(g.shape, device=g.device, dtype=g.dtype, generator=torch_gen)
+                    g = (g + noise * noise_std).clamp(0.0, 1.0)
             X_chunks.append(_extract_patch_std_batch(g, patch=patch_size))
             y_chunks.append(np.ones(b, dtype=np.int32))
             remaining -= b
@@ -241,11 +257,12 @@ def _simulate_detection(size: Tuple[int, int], sf: float, blur_sigma: float, blu
         remaining = rest
         while remaining > 0:
             b = min(chunk, remaining)
-            with torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda")):
+            with torch.amp.autocast(device_type="cuda", enabled=(device.type == "cuda" and not deterministic)):
                 h = torch.full((b, *size), 0.5, device=device, dtype=torch.float32)
                 h = _gauss_blur(h, blur_sigma, k=blur_ker, precomputed_kernel=gauss_kernel)
                 if noise_std > 0:
-                    h = (h + torch.randn_like(h) * noise_std).clamp(0.0, 1.0)
+                    noise = torch.randn(h.shape, device=h.device, dtype=h.dtype, generator=torch_gen)
+                    h = (h + noise * noise_std).clamp(0.0, 1.0)
             X_chunks.append(_extract_patch_std_batch(h, patch=patch_size))
             y_chunks.append(np.zeros(b, dtype=np.int32))
             remaining -= b
@@ -253,8 +270,8 @@ def _simulate_detection(size: Tuple[int, int], sf: float, blur_sigma: float, blu
         X = np.concatenate(X_chunks, axis=0)
         y = np.concatenate(y_chunks, axis=0)
 
-        # Shuffle the dataset
-        perm = np.random.permutation(n)
+                # Shuffle the dataset
+        perm = (np_rng.permutation(n) if np_rng is not None else np.random.permutation(n))
         return X[perm], y[perm]
 
     # --- Training ---
