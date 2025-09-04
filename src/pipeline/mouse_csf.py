@@ -78,6 +78,7 @@ class CSFParams:
     blur_sigma: float
     blur_ker: int
     noise_std: float
+    patch_size: int
     scores: Dict[str, float]  # per-SF error
 
 @torch.no_grad()
@@ -333,26 +334,7 @@ def _estimate_threshold(contrasts: np.ndarray, acc: np.ndarray, crit: float = TH
         idx = np.where(a >= crit)[0]
         return float(c[idx[0]]) if len(idx) > 0 else float(c[-1])
 
-def _compute_csf_error(threshold: float, target: float, metric: str = "log") -> float:
-    """
-    Compute error between estimated and target thresholds.
-    metric:
-      - 'linear': absolute difference in linear space
-      - 'relative': absolute relative error |thr-target|/target
-      - 'log': absolute difference in log10 space (default)
-    """
-    threshold = float(max(threshold, 1e-6))
-    target = float(max(target, 1e-6))
-    if metric == "linear":
-        return abs(threshold - target)
-    if metric == "relative":
-        return abs((threshold - target) / target)
-    # default 'log'
-    return abs(math.log10(threshold) - math.log10(target))
-
-def _evaluate_params(params, sf_table, size, contrasts, crit, pca_n,
-                     early_stop_at: float | None = None, early_stop_margin: float = 1.10,
-                     error_metric: str = "log", sf_weights: Optional[Dict[float, float]] = None):
+def _evaluate_params(params, sf_table, size, contrasts, crit, pca_n, early_stop_at: float | None = None, early_stop_margin: float = 1.10):
     """
     Worker function executed by a single process. Computes total absolute error
     for a given (blur_sigma, noise_std) pair.
@@ -362,10 +344,9 @@ def _evaluate_params(params, sf_table, size, contrasts, crit, pca_n,
     for sf, target_thr in sf_table.items():
         contrasts_res, det = _simulate_detection(size, sf, s, k, n, contrasts, pca_n=pca_n, patch_size=int(p))
         thr = _estimate_threshold(contrasts_res, det, crit)
-        err = _compute_csf_error(thr, target_thr, metric=error_metric)
-        w = 1.0 if sf_weights is None else float(sf_weights.get(sf, 1.0))
+        err = abs(thr - target_thr)
         errs[str(sf)] = err
-        total_err += w * err
+        total_err += err
         # Early pruning if clearly worse than best-so-far
         if early_stop_at is not None and total_err > (early_stop_at * early_stop_margin):
             break
@@ -378,17 +359,9 @@ def fit_mouse_csf_params(
     blur_grid: np.ndarray = BLUR_SIGMA_GRID,
     blur_ker_grid: np.ndarray = BLUR_KER_GRID,
     noise_grid: np.ndarray = NOISE_STD_GRID,
+    patch_grid: Optional[Sequence[int]] = None,
     pca_n: int | None = None,
     grid_search_log_path: Optional[str] = None,
-    patch_grid: Optional[Sequence[int]] = None,
-    # Error/optimization controls
-    error_metric: str = "log",
-    sf_weights: Optional[Dict[float, float]] = None,
-    # Optional local refinement around best grid point (sigma/noise only)
-    do_refine: bool = True,
-    refine_levels: int = 2,
-    refine_points: int = 7,
-    refine_span: float = 0.25,
 ) -> CSFParams:
     """
     Search blur sigma and noise std to minimize squared error between simulated thresholds
@@ -412,8 +385,6 @@ def fit_mouse_csf_params(
         contrasts=CONTRAST_SWEEP,
         crit=THRESH_CRITERION,
         pca_n=pca_n,
-        error_metric=error_metric,
-        sf_weights=sf_weights,
     )
 
     results = []
@@ -429,8 +400,6 @@ def fit_mouse_csf_params(
                 crit=THRESH_CRITERION,
                 pca_n=pca_n,
                 early_stop_at=best_total_err_so_far,
-                error_metric=error_metric,
-                sf_weights=sf_weights,
             )
             results.append((p, s, k, n, total_err, errs))
             if total_err < best_total_err_so_far:
@@ -463,8 +432,6 @@ def fit_mouse_csf_params(
                     'noise_std': float(n),
                     'total_error': float(total_err),
                     'per_sf_error': {k: float(v) for k, v in errs.items()},
-                    'error_metric': str(error_metric),
-                    'sf_weights': sf_weights if sf_weights is not None else {},
                 }
                 for p, s, k, n, total_err, errs in results
             ]
@@ -477,45 +444,10 @@ def fit_mouse_csf_params(
     best_p, best_s, best_k, best_n, min_err, best_errs = min(results, key=lambda x: x[4])
     print(f"\nBest result: Patch={int(best_p)}, Sigma={best_s:.2f}, Kernel={int(best_k)}, Noise={best_n:.3f}, Total Error={min_err:.4f}")
 
-    # Optional local refinement around the best (sigma, noise)
-    if do_refine:
-        center_s, center_n = float(best_s), float(best_n)
-        current_best = (best_p, center_s, best_k, center_n, min_err, best_errs)
-        for level in range(refine_levels):
-            span_s = max(1e-6, center_s * refine_span)
-            span_n = max(1e-6, center_n * refine_span)
-            sg = np.linspace(center_s - span_s, center_s + span_s, refine_points)
-            ng = np.linspace(center_n - span_n, center_n + span_n, refine_points)
-            comb = [(best_p, float(s), best_k, float(n)) for s in sg for n in ng]
-
-            best_total_err_so_far = current_best[4]
-            for params in tqdm(comb, total=len(comb), desc=f"Refine L{level+1}"):
-                p, s, k, n, total_err, errs = _evaluate_params(
-                    params,
-                    sf_table=sf_table,
-                    size=size,
-                    contrasts=CONTRAST_SWEEP,
-                    crit=THRESH_CRITERION,
-                    pca_n=pca_n,
-                    early_stop_at=best_total_err_so_far,
-                    error_metric=error_metric,
-                    sf_weights=sf_weights,
-                )
-                if total_err < best_total_err_so_far:
-                    current_best = (p, s, k, n, total_err, errs)
-                    best_total_err_so_far = total_err
-            # Update centers and shrink search window
-            best_p, center_s, best_k, center_n, min_err, best_errs = current_best
-            refine_span *= 0.5
-        print(f"After refinement: Patch={int(best_p)}, Sigma={center_s:.3f}, Kernel={int(best_k)}, Noise={center_n:.3f}, Total Error={min_err:.4f}")
-
-    params = CSFParams(blur_sigma=float(center_s if do_refine else best_s),
-                       blur_ker=int(best_k),
-                       noise_std=float(center_n if do_refine else best_n),
-                       scores=best_errs)
+    params = CSFParams(blur_sigma=float(best_s), blur_ker=int(best_k), noise_std=float(best_n), patch_size=int(best_p), scores=best_errs)
     os.makedirs(os.path.dirname(out_json), exist_ok=True)
     with open(out_json, 'w') as f:
-        json.dump({'patch_size': int(best_p), 'blur_sigma': params.blur_sigma, 'blur_ker': params.blur_ker, 'noise_std': params.noise_std, 'per_sf_error': params.scores}, f, indent=2)
+        json.dump({'patch_size': int(params.patch_size), 'blur_sigma': params.blur_sigma, 'blur_ker': params.blur_ker, 'noise_std': params.noise_std, 'per_sf_error': params.scores}, f, indent=2)
     return params
 
 def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None = None) -> Tuple[float, int, float]:
@@ -531,11 +463,11 @@ def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None
         blur_ker = int(d['blur_ker'])
         patch_size = int(d['patch_size'])
         noise_std = float(d['noise_std'])
-        return blur_sigma, blur_ker, noise_std
+        return blur_sigma, blur_ker, noise_std, patch_size
     
     print("Fitting CSF params (this may take a while)...")
     # Derive default log path next to out_json
     base, _ = os.path.splitext(out_json)
     log_path = base + "_grid_log.json"
     p = fit_mouse_csf_params(out_json, pca_n=pca_n, grid_search_log_path=log_path)
-    return p.blur_sigma, p.blur_ker, p.noise_std
+    return p.blur_sigma, p.blur_ker, p.noise_std, p.patch_size
