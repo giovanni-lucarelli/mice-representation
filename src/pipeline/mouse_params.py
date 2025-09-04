@@ -64,15 +64,21 @@ MOUSE_CSF_TARGET = {
 # BLUR_KER_GRID   = np.array([29])
 # PATCH_SIZE_GRID = np.array([24, 28, 32])
 
-BLUR_SIGMA_GRID = np.linspace(1.8, 3.8, 21)
+# last used by Spina
+#BLUR_SIGMA_GRID = np.linspace(1.8, 3.8, 21)
+#BLUR_KER_GRID = np.array([29])
+#NOISE_STD_GRID  = np.linspace(0.15, 0.35, 21)
+#PATCH_SIZE_GRID = np.array([24, 28, 32, 36, 40])
+
+BLUR_SIGMA_GRID = np.linspace(1.1, 2.9, 15)
 BLUR_KER_GRID = np.array([29])
-NOISE_STD_GRID  = np.linspace(0.15, 0.35, 21)
-PATCH_SIZE_GRID = np.array([24, 28, 32, 36, 40])
+NOISE_STD_GRID  = np.linspace(0.18, 0.38, 21)
+PATCH_SIZE_GRID = np.array([28, 32])
 
 # Grating detection fitting defaults
 N_SAMPLES_PER_CLASS = 5000     # per SF per contrast (keep reasonable to avoid long runs; increase if you want)
 # Use logarithmically spaced contrasts for a smoother, more precise threshold estimate near low contrasts
 CONTRAST_SWEEP = np.geomspace(1e-3, 1.0, 20)    # Michelson contrasts for psychometric curves (exclude 0)
-PATCH_SIZE = 28                # patch side in pixels for patchwise std feature
+PATCH_SIZE = 32                # patch side in pixels for patchwise std feature
 THRESH_CRITERION = 0.75        # 50% correct criterion for threshold
 SEED = 1234
