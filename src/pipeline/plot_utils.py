@@ -2,6 +2,7 @@ import os, json
 from typing import Optional, Dict
 import numpy as np
 from .mouse_params import PATCH_SIZE
+from config import ROOT
 
 def plot_csf_grid_log(
     log_path: str,
@@ -260,9 +261,9 @@ def plot_csf_grid_log(
         cbar.set_label("Error")
 
         if save_path is None:
-            base, _ = os.path.splitext(log_path)
+            basefolder = ROOT / "artifacts"
             suffix = "total" if metric == "total_error" else f"sf_{sf}"
-            save_path = base + f"_facet_{suffix}.png"
+            save_path = os.path.join(basefolder, f"csf_grid_facet_{suffix}.png")
         try:
             fig.savefig(save_path, dpi=200, bbox_inches='tight')
             print(f"Saved facet heatmaps to {save_path}")

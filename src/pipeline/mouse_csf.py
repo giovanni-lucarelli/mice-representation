@@ -48,16 +48,23 @@ def _get_gaussian_kernel2d(sigma: float, k: int, device: torch.device) -> torch.
     if sigma <= 0:
         # Return 1x1 identity kernel to skip convolution
         return torch.tensor([[[[1.0]]]], device=device, dtype=torch.float32)
-    k = int(k if k % 2 == 1 else k + 1)
-    key = (float(sigma), int(k), str(device))
+    
+    if k <= 0:
+        # Dynamic kernel size based on sigma: cover ~±3σ
+        kernel_size = int(2 * math.ceil(3.0 * float(sigma)) + 1)
+    else:
+        kernel_size = int(k)
+
+    key = (float(sigma), kernel_size, str(device))
     ker = _GAUSS_KERNEL_CACHE.get(key)
     if ker is not None and ker.device == device:
         return ker
-    radius = k // 2
+        
+    radius = kernel_size // 2
     x = torch.arange(-radius, radius + 1, dtype=torch.float32, device=device)
     kernel1d = torch.exp(-(x**2) / (2 * float(sigma)**2))
     kernel1d /= kernel1d.sum()
-    kernel2d = torch.outer(kernel1d, kernel1d).view(1, 1, k, k)
+    kernel2d = torch.outer(kernel1d, kernel1d).view(1, 1, kernel_size, kernel_size)
     _GAUSS_KERNEL_CACHE[key] = kernel2d
     return kernel2d
 
@@ -358,10 +365,20 @@ def _evaluate_params(params, sf_table, size, contrasts, crit, pca_n, early_stop_
     """
     p, s, k, n = params
     errs, total_err = {}, 0.0
+    # Stable, per-combination seed for deterministic evaluation across runs
+    p, s, k, n = params
+    combo_seed = int(hash((int(p), float(s), int(k), float(n))) & 0x7FFFFFFF)
     for sf, target_thr in sf_table.items():
-        contrasts_res, det = _simulate_detection(size, sf, s, k, n, contrasts, pca_n=pca_n, patch_size=int(p))
+        # if sf < 0.1:
+        #     current_patch_size = 32  # Patch più grande per basse SF
+        # else:
+        #     current_patch_size = int(p) # Patch di default per alte SF
+        contrasts_res, det = _simulate_detection(
+            size, sf, s, k, n, contrasts,
+            pca_n=pca_n, patch_size=int(p), seed=combo_seed, deterministic=True
+        )
         thr = _estimate_threshold(contrasts_res, det, crit)
-        err = abs(thr - target_thr)
+        err = abs(np.log10(thr) - np.log10(target_thr))
         errs[str(sf)] = err
         total_err += err
         # Early pruning if clearly worse than best-so-far
@@ -467,7 +484,7 @@ def fit_mouse_csf_params(
         json.dump({'patch_size': int(params.patch_size), 'blur_sigma': params.blur_sigma, 'blur_ker': params.blur_ker, 'noise_std': params.noise_std, 'per_sf_error': params.scores}, f, indent=2)
     return params
 
-def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None = None) -> Tuple[float, int, float]:
+def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None = None) -> Tuple[float, int, float, int]:
     """
     Loads CSF parameters from a JSON file. If the file doesn't exist or force_fit is True,
     it runs the fitting process.

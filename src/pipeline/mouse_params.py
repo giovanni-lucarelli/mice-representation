@@ -38,42 +38,19 @@ MOUSE_CSF_TARGET = {
     0.066: 0.04,
     0.031: 0.23,
 }
-
-# Search grids for blur/noise fitting (sigma in pixels at pre-warp resolution; noise is Gaussian std in [0,1] tensor space)
-# BLUR_SIGMA_GRID = np.array([0, 1, 2, 4, 8,])     # px - uniformly sampled discrete values
-# NOISE_STD_GRID  = np.linspace(0.01, 0.5, 8)   # unitless (tensor scale)
-
-# In mouse_params.py, prova a sostituire le griglie con queste:
-
-# BLUR_SIGMA_GRID = np.linspace(1.7, 2.3, 6)
-# # BLUR_SIGMA_GRID = np.array([1, 2, 4, 12])
-# BLUR_KER_GRID = np.array([29])
-# # Restrict noise to a lower, more realistic range to avoid the fit collapsing to high-noise solutions
-# NOISE_STD_GRID  = np.linspace(0.15, 0.21, 6)
-# PATCH_SIZE_GRID = np.array([12, 16, 20, 24])
-
-# src/pipeline/mouse_params.py
-# BLUR_SIGMA_GRID = np.arange(1.80, 1.90, 0.02)  # narrow around best ~1.84
-# NOISE_STD_GRID  = np.array([0.18, 0.19, 0.20, 0.21, 0.22])  # narrow around best ~0.20
+# # src/pipeline/mouse_params.py
+# BLUR_SIGMA_GRID = np.arange(1.5, 2.5, 0.1)   # around 1.82
+# NOISE_STD_GRID  = np.arange(0.1, 0.25, 0.01)  # around 0.21
 # BLUR_KER_GRID   = np.array([29])        # fixed (sufficient radius for all σ)
 # PATCH_SIZE_GRID = np.array([24, 28, 32])  # check local neighborhood of 16
 
-# src/pipeline/mouse_params.py
-# BLUR_SIGMA_GRID = np.array([1.8, 1.9, 2.0])
-# NOISE_STD_GRID  = np.array([0.18, 0.20, 0.22])
-# BLUR_KER_GRID   = np.array([29])
-# PATCH_SIZE_GRID = np.array([24, 28, 32])
-
-# last used by Spina
-#BLUR_SIGMA_GRID = np.linspace(1.8, 3.8, 21)
-#BLUR_KER_GRID = np.array([29])
-#NOISE_STD_GRID  = np.linspace(0.15, 0.35, 21)
-#PATCH_SIZE_GRID = np.array([24, 28, 32, 36, 40])
-
-BLUR_SIGMA_GRID = np.linspace(1.1, 2.9, 15)
-BLUR_KER_GRID = np.array([29])
-NOISE_STD_GRID  = np.linspace(0.18, 0.38, 21)
-PATCH_SIZE_GRID = np.array([28, 32])
+BLUR_SIGMA_GRID = np.concatenate([
+    np.arange(1.55, 1.76, 0.01),   # around the mode ~1.6–1.7
+    np.arange(1.80, 2.06, 0.01),   # around the mode ~1.85–2.0
+])
+NOISE_STD_GRID  = np.arange(0.23, 0.291, 0.005)
+BLUR_KER_GRID   = np.array([29])  # if k = 0, the kernel is dynamically computed based on sigma
+PATCH_SIZE_GRID = np.array([24])
 
 # Grating detection fitting defaults
 N_SAMPLES_PER_CLASS = 5000     # per SF per contrast (keep reasonable to avoid long runs; increase if you want)

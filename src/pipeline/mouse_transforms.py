@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from typing import Tuple, Union, Dict
 
 from .transforms import (
-    ToTensor, SquarePad, Resize, RandomImgAffine,
+    ToTensor, Resize, RandomImgAffine,
     GaussianBlur as _GaussianBlur, GaussianNoise as _GaussianNoise, Normalize, RgbToGray, RgbToMouseLike
 )
 from .mouse_params import FOV_DEG, DEFAULT_ROLL_DEG, DEFAULT_TRANSLATE
@@ -83,14 +83,11 @@ def mouse_transform(
     to_gray: bool = True,
     to_mouse: bool = False,
     gray_keep_channels: bool = True,
-    resize: bool = True,
-    square_pad: bool = False,
+    resize: bool = True
 ) -> transforms.Compose:
     """
     Mouse-calibrated preprocessing:
-    1) SquarePad + optional spherical warping to 120x95 deg FOV
-    2) Random retinal motion (yaw/pitch -> translate (not used), roll -> rotate(not used))
-    3) Gaussian blur + Gaussian noise (CSF-matched)
+    1) Gaussian blur + Gaussian noise (CSF-matched)
     """
     if to_mouse:
         if to_gray:
@@ -100,9 +97,6 @@ def mouse_transform(
             warnings.warn("gray_keep_channels is ignored when to_mouse=True; output is always 3 channels")
     
     ops = [ToTensor()]
-    
-    if square_pad:
-        ops.append(SquarePad(scale=img_scale_fact, preserve=False))
     
     if apply_warp:
         ops.append(SphericalWarp(FOV_DEG))
@@ -121,13 +115,18 @@ def mouse_transform(
             fill=0.5,
         ))
 
-    if apply_csf:
-        ops.extend([
-            GaussianBlur(kernel_size=blur_ker, sigma=blur_sig, decline=(blur_sig is None or blur_sig <= 0)),
-            GaussianNoise(std=noise_std, mono=True, decline=(noise_std is None or noise_std <= 0), generator=noise_rng),
-        ])
+    # Convert to grayscale before applying CSF blur+noise so both operate on luminance
     if to_gray:
         ops.append(RgbToGray(keep_channels=3 if gray_keep_channels else 1))
+        
+    if apply_csf:
+        # Dynamic kernel size to cover ~±3σ
+        import math
+        k_dyn = int(2 * math.ceil(3.0 * float(blur_sig))) + 1 if (blur_sig is not None and blur_sig > 0) else 1
+        ops.extend([
+            GaussianBlur(kernel_size=k_dyn, sigma=blur_sig, decline=(blur_sig is None or blur_sig <= 0)),
+            GaussianNoise(std=noise_std, mono=True, decline=(noise_std is None or noise_std <= 0), generator=noise_rng),
+        ])
     if to_mouse:
         ops.append(RgbToMouseLike(decline=False))
         

@@ -4,6 +4,9 @@ import torch.optim as optim
 from torch.nn import CrossEntropyLoss
 from torch.amp import autocast, GradScaler
 from torchvision import models
+import logging
+from datetime import datetime
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from typing import Optional
@@ -11,7 +14,7 @@ import os
 from pathlib import Path
 
 from config import *
-from DataManager import DataManager
+from datasets.DataManager import DataManager
 
 # Reduce /dev/shm usage to avoid DataLoader bus errors
 try:
@@ -20,6 +23,25 @@ try:
     )
 except Exception:
     pass
+
+def _get_run_logger():
+    """Create and return a file-only logger under ROOT/log."""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOG_DIR / f"train_{timestamp}.log"
+    logger = logging.getLogger(f"mice_repr.train.{timestamp}")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        file_handler = logging.FileHandler(log_path.as_posix())
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.propagate = False
+    return logger, log_path
 
     
 #? -------------------------------------------------------------- #
@@ -51,13 +73,17 @@ class AlexNet():
         self.weight_decay : float                           = weight_decay
         self.dropout_rate : float                           = dropout_rate
         self.patience     : int                             = patience
+        self.start_epoch  : int                             = 0
         
+        # initialize file logger (file-only, no console output)
+        self.logger, self.log_file_path = _get_run_logger()
+
         if model is None:
             self.model = models.alexnet(weights=None)
         
         if device is None:
             self.device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
-            print(f"Using device: {self.device}")
+            self.logger.info(f"Using device: {self.device}")
             # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
             if self.device.type == 'cuda':
                 torch.backends.cudnn.benchmark = True
@@ -102,11 +128,8 @@ class AlexNet():
             num_classes = self.data_manager.num_classes
             
             # Create a new classifier that adapts to the input size
-            # First, let's create a dummy input to get the actual feature dimension
-            input_size = int(os.environ.get("INPUT_SIZE", "64"))
-            # For 64×64, shrink avgpool to 1×1 (Nayebi-style). Keep default for larger inputs
-            if input_size <= 64:
-               self.model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+            # Use fixed 224×224 input size for feature dimension computation
+            input_size = 224
             dummy_input = torch.randn(1, 3, input_size, input_size)
             with torch.no_grad():
                 # Get features before classifier
@@ -114,7 +137,7 @@ class AlexNet():
                 features = self.model.avgpool(features)
                 features = torch.flatten(features, 1)
                 actual_feature_dim = features.shape[1]
-                print(f"Actual feature dimension: {actual_feature_dim}")
+                self.logger.info(f"Actual feature dimension: {actual_feature_dim}")
 
             self.model.classifier = nn.Sequential(
                 nn.Dropout(self.dropout_rate),
@@ -264,10 +287,13 @@ class AlexNet():
         else:
             raise ValueError(f"Invalid scheduler: {SCHEDULER}")
         
-        for epoch in range(self.num_epochs):
+        # If resuming, start from self.start_epoch
+        if self.start_epoch > 0:
+            self.logger.info(f"Resuming training from epoch {self.start_epoch}.")
+        for epoch in range(self.start_epoch, self.num_epochs):
             
-            print(f"Epoch {epoch+1}/{self.num_epochs}")
-            print("-" * 10)
+            self.logger.info(f"Epoch {epoch+1}/{self.num_epochs}")
+            self.logger.info("-" * 10)
             
             train_loss, train_acc, train_acc5 = self.train_epoch()
             val_loss, val_acc, val_acc5 = self.validate_epoch()
@@ -285,9 +311,9 @@ class AlexNet():
             self.train_top5_accuracies.append(train_acc5)
             self.val_top5_accuracies.append(val_acc5)
             
-            print(f"Train Loss: {train_loss:.4f}, Train Acc@1: {train_acc:.2f}%, Acc@5: {train_acc5:.2f}%")
-            print(f"Val Loss: {val_loss:.4f}, Val Acc@1: {val_acc:.2f}%, Acc@5: {val_acc5:.2f}%")
-            print(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
+            self.logger.info(f"Train Loss: {train_loss:.4f}, Train Acc@1: {train_acc:.2f}%, Acc@5: {train_acc5:.2f}%")
+            self.logger.info(f"Val Loss: {val_loss:.4f}, Val Acc@1: {val_acc:.2f}%, Acc@5: {val_acc5:.2f}%")
+            self.logger.info(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
             
             # Early stopping
             if val_loss < best_val_loss:
@@ -311,13 +337,14 @@ class AlexNet():
                         "val_top5_accuracies": self.val_top5_accuracies,
                     }
                 }, best_ckpt_path.as_posix())
-                print(f"Model saved to {best_ckpt_path}")
+                self.logger.info(f"Model saved to {best_ckpt_path}")
             else:
                 patience_counter += 1
-                print(f"Patience: {patience_counter}/{self.patience}")
+                self.logger.info(f"Patience: {patience_counter}/{self.patience}")
                 
+            factor = max(1, self.num_epochs // 10)
             # Milestone checkpoints
-            if (epoch + 1) in [25, 50, 75, 100]:
+            if (epoch + 1) % factor == 0:
                 CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
                 ckpt_path = CHECKPOINT_PATH.parent / f"checkpoint_epoch_{epoch+1}.pth"
                 torch.save({
@@ -335,14 +362,14 @@ class AlexNet():
                         "val_top5_accuracies": self.val_top5_accuracies,
                     }
                 }, ckpt_path.as_posix())
-                print(f"Saved milestone checkpoint: {ckpt_path}")
+                self.logger.info(f"Saved milestone checkpoint: {ckpt_path}")
 
             # Stop if validation loss doesn't improve
             if patience_counter >= self.patience:
-                print(f"Early stopping at epoch {epoch+1}")
+                self.logger.info(f"Early stopping at epoch {epoch+1}")
                 break
                 
-            print("-" * 10)
+            self.logger.info("-" * 10)
             
         return {
             "train_losses": self.train_losses,
@@ -399,6 +426,7 @@ class AlexNet():
         path = Path(model_path)
         if not path.exists():
             print(f"Path {path} does not exist, checking {CHECKPOINT_PATH}")
+            self.logger.warning(f"Path {path} does not exist, checking {CHECKPOINT_PATH}")
             if CHECKPOINT_PATH.exists():
                 path = CHECKPOINT_PATH
             else:
@@ -410,6 +438,12 @@ class AlexNet():
 
         checkpoint = torch.load(path.as_posix(), map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        # Set start_epoch to next epoch after the one stored in checkpoint
+        try:
+            saved_epoch = int(checkpoint.get('epoch', -1))
+        except Exception:
+            saved_epoch = -1
+        self.start_epoch = max(0, saved_epoch + 1)
         # Restore history if available so plots are not empty
         history = checkpoint.get('history')
         if isinstance(history, dict):
@@ -419,53 +453,50 @@ class AlexNet():
             self.val_accuracies = history.get('val_accuracies', [])
             self.train_top5_accuracies = history.get('train_top5_accuracies', [])
             self.val_top5_accuracies = history.get('val_top5_accuracies', [])
+            
         print(f"Model loaded from {path}")
         print(f"Best validation loss: {checkpoint['loss']:.4f}")
         print(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
+        self.logger.info(f"Model loaded from {path}")
+        self.logger.info(f"Best validation loss: {checkpoint['loss']:.4f}")
+        self.logger.info(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
+        self.logger.info(f"start_epoch set to {self.start_epoch}")
         
     def plot_training_history(self):
         """Plot training and validation curves."""
-        try:
-            import matplotlib.pyplot as plt
             
-            epochs = range(1, len(self.train_losses) + 1)
-            
-            plt.figure(figsize=(12, 4))
-            
-            # Plot losses
-            plt.subplot(1, 2, 1)
-            plt.plot(epochs, self.train_losses, 'b-', label='Training Loss')
-            plt.plot(epochs, self.val_losses, 'r-', label='Validation Loss')
-            plt.title('Training and Validation Loss')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.legend()
-            plt.grid(True)
-            
-            # Plot accuracies
-            plt.subplot(1, 2, 2)
-            plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc@1')
-            plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc@1')
-            if len(self.train_top5_accuracies) == len(self.train_accuracies):
-                plt.plot(epochs, self.train_top5_accuracies, 'b--', label='Train Acc@5')
-            if len(self.val_top5_accuracies) == len(self.val_accuracies):
-                plt.plot(epochs, self.val_top5_accuracies, 'r--', label='Val Acc@5')
-            plt.title('Accuracy (Top-1 and Top-5)')
-            plt.xlabel('Epoch')
-            plt.ylabel('Accuracy (%)')
-            plt.legend()
-            plt.grid(True)
-            
-            plt.tight_layout()
-            plt.savefig('training_history.png', dpi=300, bbox_inches='tight')
-            plt.show()
-            
-        except ImportError:
-            print("Matplotlib not available. Skipping plot generation.")
-            print("Training losses:", self.train_losses)
-            print("Validation losses:", self.val_losses)
-            print("Training accuracies:", self.train_accuracies)
-            print("Validation accuracies:", self.val_accuracies)
+        epochs = range(1, len(self.train_losses) + 1)
+        
+        plt.figure(figsize=(12, 4))
+        
+        # Plot losses
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs, self.train_losses, 'b-', label='Training Loss')
+        plt.plot(epochs, self.val_losses, 'r-', label='Validation Loss')
+        plt.title('Training and Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True)
+        
+        # Plot accuracies
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc@1')
+        plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc@1')
+        if len(self.train_top5_accuracies) == len(self.train_accuracies):
+            plt.plot(epochs, self.train_top5_accuracies, 'b--', label='Train Acc@5')
+        if len(self.val_top5_accuracies) == len(self.val_accuracies):
+            plt.plot(epochs, self.val_top5_accuracies, 'r--', label='Val Acc@5')
+        plt.title('Accuracy (Top-1 and Top-5)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy (%)')
+        plt.legend()
+        plt.grid(True)
+        
+        plt.tight_layout()
+        plt.savefig(ROOT / 'assets/training_history.png', dpi=300, bbox_inches='tight')
+        plt.show()
+        
                 
 if __name__ == "__main__":
 
@@ -500,8 +531,11 @@ if __name__ == "__main__":
         try:
             model_manager.load_model(CHECKPOINT_PATH.as_posix())
             print("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
+            model_manager.logger.info("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
+        
         except Exception as e:
             print(f"Could not warm-start from best_model.pth: {e}")
+            model_manager.logger.warning(f"Could not warm-start from best_model.pth: {e}")
     
     # Train the model
     training_history = model_manager.train()

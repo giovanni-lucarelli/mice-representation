@@ -43,7 +43,7 @@ class DataManager():
 
         - train_split and val_split are fractions of the whole dataset;
           test size is inferred as 1 - (train_split + val_split).
-        - If no transforms are provided, sensible defaults for 64x64 images are used.
+        - If no transforms are provided, sensible defaults for 224x224 images are used.
         - split_seed controls reproducible shuffling in dataset splits.
         """
         self.data_path = data_path
@@ -58,11 +58,11 @@ class DataManager():
         if train_transform is None:
             
             transforms_list = []
-            # Train transform: resize, light augmentation, tensor, normalization
+            # Train transform: resize/crop to 224, augmentation, tensor, normalization
             if NO_CROP:
-                transforms_list.append(transforms.Resize((64, 64)))   # direct resize; no random crop (?)
+                transforms_list.append(transforms.Resize((224, 224)))   # direct resize; no random crop
             else:
-                transforms_list.append(transforms.RandomResizedCrop(64, scale=(0.08, 1.0))) # Standard per ImageNet
+                transforms_list.append(transforms.RandomResizedCrop(224, scale=(0.08, 1.0))) # Standard per ImageNet
             transforms_list.extend([
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
@@ -77,7 +77,7 @@ class DataManager():
         if eval_transform is None:
             # Eval transform: deterministic resize + normalization only
             self.eval_transform = transforms.Compose([
-                transforms.Resize((64, 64)),   # direct resize; no random crop
+                transforms.Resize((224, 224)),   # direct resize; no random crop
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225]),
@@ -138,15 +138,6 @@ class DataManager():
         except KeyError:
             raise ValueError(f"Class ID '{class_id}' not found in labels.")
     
-    def _get_class_id(self, class_name: str) -> int:
-        """Return numeric class id given a human-readable name."""
-        if self.labels_to_id is None:
-            raise ValueError("Labels not loaded. Call load_labels() first.")
-
-        try:
-            return self.labels_to_id[class_name]
-        except KeyError:
-            raise ValueError(f"Class name '{class_name}' not found in labels.")
         
     def load_data(self):
         """Create base MiniImageNet dataset and populate class metadata."""
@@ -238,6 +229,15 @@ class DataManager():
         print(f"Val dataset: {len(self.val_dataset)} samples")
         print(f"Test dataset: {len(self.test_dataset)} samples")
         
+    def _seed_worker(self, worker_id: int):
+        """Ensure deterministic seeding for each DataLoader worker."""
+        import random
+        import numpy as _np
+        worker_seed = self.split_seed + worker_id
+        random.seed(worker_seed)
+        _np.random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
+
     def create_loaders(self):
         """Instantiate PyTorch `DataLoader`s with safe defaults.
 
@@ -254,6 +254,8 @@ class DataManager():
         if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
             raise ValueError("Train, val, and test datasets not provided")
 
+        g = torch.Generator()
+        g.manual_seed(self.split_seed)
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
@@ -262,6 +264,8 @@ class DataManager():
             pin_memory=pin,
             persistent_workers=persistent,
             prefetch_factor=prefetch,
+            worker_init_fn=self._seed_worker,
+            generator=g,
         )
 
         self.val_loader = DataLoader(
@@ -272,6 +276,8 @@ class DataManager():
             pin_memory=pin,
             persistent_workers=persistent,
             prefetch_factor=prefetch,
+            worker_init_fn=self._seed_worker,
+            generator=g,
         )
 
         self.test_loader = DataLoader(
@@ -282,6 +288,8 @@ class DataManager():
             pin_memory=pin,
             persistent_workers=persistent,
             prefetch_factor=prefetch,
+            worker_init_fn=self._seed_worker,
+            generator=g,
         )
         
     #? ------------------------ Setup -------------------------

@@ -11,6 +11,10 @@ to the repository layout to ensure portability and correctness.
 SRC_DIR = Path(__file__).resolve().parent
 ROOT = SRC_DIR.parent
 
+#? ------------- logging constants -------------
+# Logs will be written under ROOT / "log"
+LOG_DIR = ROOT / "log"
+
 #? ------------- Allen data constants -------------
 NEUROPIXELS_PKL_URL: str = "https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl"
 CALCIUM_PKL_URL: str = "https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_calcium_visual_data_with_reliabilities.pkl"
@@ -57,17 +61,15 @@ NO_CROP = False
 
 #? ------------- scheduler constants -------------
 SCHEDULER = "ReduceLROnPlateau" # "ReduceLROnPlateau" or "MultiStepLR"
-
 SCHEDULER_MILESTONES = [30, 60, 90]
 SCHEDULER_GAMMA = 0.1
-SCHEDULER_TYPE = "cosine" # "cosine" or "step"
 
 #? ------------- Notebook constants -------------
+# Notebook flags (kept for notebooks; not used by core Python modules)
 DOWNLOAD_DATA = False
 DOWNLOAD_ALLEN_DATA = False
 CONVERT_ALLEN_DATA = False
 VISUALIZE_ALLEN_DATA = False
-
 TRAIN = False
 TEST = False
 LOAD_MODEL = True

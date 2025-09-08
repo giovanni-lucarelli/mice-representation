@@ -88,47 +88,38 @@ class AllenDataViewer:
         fig_size = (2*grid_x, 2*grid_y)
         fig, axes = plt.subplots(grid_y, grid_x, figsize=fig_size, squeeze=False)
 
-        def _to_2d(img: np.ndarray) -> np.ndarray:
-            """Convert an image/volume to 2D for imshow.
-            - If 2D: return as-is.
-            - If 3D and channel-last (H,W,1 or H,W,3): return gray/RGB accordingly.
-            - If 3D and channel-first (1,H,W or 3,H,W): move channels to last.
-            - If 3D volumetric (e.g., H,W,D or D,H,W): apply projection (MIP) or slice.
-            - If >3D: collapse leading dims until 3D, then apply the above.
-            """
+        def _to_displayable(img: np.ndarray) -> np.ndarray:
+            """Convert an image/volume to a 2D or 3D array suitable for imshow."""
             arr = np.asarray(img)
+
+            # Collapse leading dimensions if > 3D
             while arr.ndim > 3:
                 arr = arr[0]
+
             if arr.ndim == 2:
                 return arr
+
             if arr.ndim == 3:
-                h, w, c = arr.shape
-                # Channel-last
-                if c in (1, 3):
-                    return arr if c == 3 else arr[..., 0]
-                # Channel-first
-                if h in (1, 3):
-                    arr2 = np.moveaxis(arr, 0, -1)
-                    return arr2 if arr2.shape[-1] == 3 else arr2[..., 0]
-                # Volumetric: choose axis and project or slice
-                ax = axis if axis in (-1, 0, 1, 2) else -1
+                # Case 1: Channel-last (H, W, C)
+                if arr.shape[-1] in {1, 3, 4}:
+                    return np.squeeze(arr, axis=-1) if arr.shape[-1] == 1 else arr
+                
+                # Case 2: Channel-first (C, H, W)
+                if arr.shape[0] in {1, 3, 4}:
+                    arr_moved = np.moveaxis(arr, 0, -1)
+                    return np.squeeze(arr_moved, axis=-1) if arr.shape[0] == 1 else arr_moved
+
+                # Case 3: Volumetric (e.g., D, H, W or H, W, D)
+                proj_axis = axis if axis in range(-arr.ndim, arr.ndim) else -1
                 if projection.lower() == "mip":
-                    try:
-                        return np.max(arr, axis=ax)
-                    except Exception:
-                        return np.max(arr, axis=-1)
-                depth = arr.shape[ax]
-                idx = depth // 2 if slice_idx is None else int(max(0, min(depth - 1, slice_idx)))
-                try:
-                    return np.take(arr, indices=idx, axis=ax)
-                except Exception:
-                    return arr[..., idx]
-            arr = np.squeeze(arr)
-            if arr.ndim == 2:
-                return arr
-            if arr.ndim == 3:
-                return _to_2d(arr)
-            return np.asarray(arr)
+                    return np.max(arr, axis=proj_axis)
+                else:  # slice
+                    depth = arr.shape[proj_axis]
+                    idx = depth // 2 if slice_idx is None else int(max(0, min(depth - 1, slice_idx)))
+                    return np.take(arr, indices=idx, axis=proj_axis)
+
+            # Fallback for 0D or 1D arrays
+            return np.squeeze(arr)
 
         for i in range(grid_x * grid_y):
             ax = axes.ravel()[i]
@@ -137,13 +128,12 @@ class AllenDataViewer:
                 continue
 
             img = stim[i]
-            img2d = _to_2d(img)
-            if img2d.ndim == 2:
-                ax.imshow(img2d, cmap="gray")
-            elif img2d.ndim == 3 and img2d.shape[-1] == 3:
-                ax.imshow(img2d)
-            else:
-                ax.imshow(np.squeeze(img2d), cmap="gray")
+            img_to_show = _to_displayable(img)
+            
+            # imshow can handle 2D (grayscale) and 3D (RGB/A)
+            cmap = "gray" if img_to_show.ndim == 2 else None
+            ax.imshow(img_to_show, cmap=cmap)
+
         fig.tight_layout()
 
         out = out_path or "stimuli_grid.png"

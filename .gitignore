@@ -1,6 +1,10 @@
 .*venv/
 __pycache__/
 AllenData/
+*backup*
 
 # comment to save checkpoints
 # checkpoints/
+
+# logs
+log/
