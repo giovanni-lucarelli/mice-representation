@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torch.nn import CrossEntropyLoss
 from torch.amp import autocast, GradScaler
 from torchvision import models
@@ -66,9 +67,8 @@ class AlexNet():
         self.model        : Optional[torch.nn.Module]       = model
         self.device       : Optional[torch.device]          = device
         self.criterion    : Optional[torch.nn.Module]       = criterion
-        self.optimizer    : Optional[torch.optim.Optimizer] = None # set below
-        self.num_epochs   : int                             = num_epochs
         self.data_manager : Optional[DataManager]           = data_manager
+        self.num_epochs   : int                             = num_epochs
         self.learning_rate: float                           = learning_rate
         self.weight_decay : float                           = weight_decay
         self.dropout_rate : float                           = dropout_rate
@@ -79,7 +79,7 @@ class AlexNet():
         self.logger, self.log_file_path = _get_run_logger()
 
         if model is None:
-            self.model = models.alexnet(weights=None)
+            self.model = models.alexnet(weights=None, num_classes=self.data_manager.num_classes, dropout=self.dropout_rate)
         
         if device is None:
             self.device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
@@ -97,57 +97,14 @@ class AlexNet():
         if criterion is None:
             self.criterion = CrossEntropyLoss(label_smoothing=label_smoothing)
         
-        if isinstance(optimizer, str):
-            if optimizer == "SGD":
-                self.optimizer = optim.SGD(
-                    self.model.parameters(), 
-                    lr=self.learning_rate,
-                    weight_decay=self.weight_decay,
-                    momentum=0.9
-                )
-
-            elif optimizer == "AdamW":
-                self.optimizer = optim.AdamW(
-                    self.model.parameters(),
-                    lr=self.learning_rate,
-                    weight_decay=self.weight_decay
-                )
-        elif isinstance(optimizer, torch.optim.Optimizer):
-            self.optimizer = optimizer
-        else:
-            raise ValueError(f"Invalid optimizer: {optimizer}")
+        self.optimizer = optim.AdamW(
+            self.model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay
+        )
         
-        if self.optimizer is None:
-            raise ValueError("Error: Optimizer not set")
-            
         if data_manager is None:
             raise ValueError("Data manager not provided")
-        
-        # Modify final layer to match number of classes and add dropout
-        if self.model is not None and self.data_manager is not None:
-            num_classes = self.data_manager.num_classes
-            
-            # Create a new classifier that adapts to the input size
-            # Use fixed 224×224 input size for feature dimension computation
-            input_size = 224
-            dummy_input = torch.randn(1, 3, input_size, input_size)
-            with torch.no_grad():
-                # Get features before classifier
-                features = self.model.features(dummy_input)
-                features = self.model.avgpool(features)
-                features = torch.flatten(features, 1)
-                actual_feature_dim = features.shape[1]
-                self.logger.info(f"Actual feature dimension: {actual_feature_dim}")
-
-            self.model.classifier = nn.Sequential(
-                nn.Dropout(self.dropout_rate),
-                nn.Linear(actual_feature_dim, 4096),
-                nn.ReLU(inplace=True),
-                nn.Dropout(self.dropout_rate),
-                nn.Linear(4096, 4096),
-                nn.ReLU(inplace=True),
-                nn.Linear(4096, num_classes)
-            )
         
         self.model.to(self.device)
         
@@ -156,8 +113,6 @@ class AlexNet():
         
         self.train_accuracies = []
         self.val_accuracies   = []
-        self.train_top5_accuracies = []
-        self.val_top5_accuracies   = []
         
         if self.data_manager is None:
             raise ValueError("Data manager not provided")
@@ -171,15 +126,14 @@ class AlexNet():
         
     #? ------------------------ Train Epoch -------------------------
         
-    def train_epoch(self):
+    def train_epoch(self, epoch):
         self.model.train()
         
         total_loss    = 0.0
         total_correct = 0
-        total_top5_correct = 0
         total_samples = 0
         
-        progress_bar = tqdm(self.train_loader, desc="Training", leave=False)
+        progress_bar = tqdm(self.train_loader, desc=f"Training Epoch {epoch+1}", leave=False)
             
         for batch_idx, (images, labels) in enumerate(progress_bar):
             images = images.to(self.device, non_blocking=True)
@@ -202,9 +156,7 @@ class AlexNet():
             total_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
             total_correct += (labels == predicted).sum().item()
-            # Top-5
-            top5 = torch.topk(outputs, k=5, dim=1).indices
-            total_top5_correct += top5.eq(labels.view(-1, 1)).any(dim=1).sum().item()
+           
             total_samples += labels.size(0)
             
             # Update progress bar
@@ -215,22 +167,20 @@ class AlexNet():
         
         epoch_loss = total_loss / len(self.train_loader)
         epoch_acc  = 100 * total_correct / total_samples
-        epoch_acc5 = 100 * total_top5_correct / total_samples
             
-        return epoch_loss, epoch_acc, epoch_acc5
+        return epoch_loss, epoch_acc
     
     #? ------------------------ Validate Epoch -------------------------
     
-    def validate_epoch(self):
+    def evaluate(self, loader: DataLoader):
         self.model.eval()
         
         total_loss = 0.0
         total_correct = 0
-        total_top5_correct = 0
         total_samples = 0
         
         with torch.no_grad():
-            progress_bar = tqdm(self.val_loader, desc="Validating", leave=False)
+            progress_bar = tqdm(loader, desc="Validating", leave=False)
             
             for batch_idx, (images, labels) in enumerate(progress_bar):
                 images = images.to(self.device, non_blocking=True)
@@ -248,8 +198,6 @@ class AlexNet():
                 _, predicted = torch.max(outputs, 1)
                 total_samples += labels.size(0)
                 total_correct += (labels == predicted).sum().item()
-                top5 = torch.topk(outputs, k=5, dim=1).indices
-                total_top5_correct += top5.eq(labels.view(-1,1)).any(dim=1).sum().item()
                 
                 # Update progress bar
                 progress_bar.set_postfix({
@@ -257,11 +205,10 @@ class AlexNet():
                     "Acc":   f'{100 * total_correct / total_samples:.2f}%'
                 })
                 
-        epoch_loss = total_loss / len(self.val_loader)
+        epoch_loss = total_loss / len(loader)
         epoch_acc  = 100 * total_correct / total_samples
-        epoch_acc5 = 100 * total_top5_correct / total_samples
         
-        return epoch_loss, epoch_acc, epoch_acc5
+        return epoch_loss, epoch_acc
     
     #? ------------------------ Train -------------------------
     
@@ -270,22 +217,12 @@ class AlexNet():
         best_val_loss = float('inf')
         patience_counter = 0
         
-        # Learning rate scheduler
-        if SCHEDULER == "ReduceLROnPlateau":
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer, 
-                mode='min', 
-                factor=0.5, 
-                patience=5
-            )
-        elif SCHEDULER == "MultiStepLR":
-            scheduler = optim.lr_scheduler.MultiStepLR(
-                self.optimizer,
-                milestones=SCHEDULER_MILESTONES,
-                gamma=SCHEDULER_GAMMA
-            )
-        else:
-            raise ValueError(f"Invalid scheduler: {SCHEDULER}")
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, 
+            mode='min', 
+            factor=0.5, 
+            patience=5
+        )
         
         # If resuming, start from self.start_epoch
         if self.start_epoch > 0:
@@ -295,49 +232,48 @@ class AlexNet():
             self.logger.info(f"Epoch {epoch+1}/{self.num_epochs}")
             self.logger.info("-" * 10)
             
-            train_loss, train_acc, train_acc5 = self.train_epoch()
-            val_loss, val_acc, val_acc5 = self.validate_epoch()
+            train_loss, train_acc = self.train_epoch(epoch)
+            val_loss, val_acc = self.evaluate(self.val_loader)
             
-            # Update learning rate based on validation loss
-            if SCHEDULER == "ReduceLROnPlateau":
-                scheduler.step(val_loss)
-            elif SCHEDULER == "MultiStepLR":
-                scheduler.step()
+            scheduler.step(val_loss)
             
             self.train_losses.append(train_loss)
             self.val_losses.append(val_loss)
             self.train_accuracies.append(train_acc)
             self.val_accuracies.append(val_acc)
-            self.train_top5_accuracies.append(train_acc5)
-            self.val_top5_accuracies.append(val_acc5)
-            
-            self.logger.info(f"Train Loss: {train_loss:.4f}, Train Acc@1: {train_acc:.2f}%, Acc@5: {train_acc5:.2f}%")
-            self.logger.info(f"Val Loss: {val_loss:.4f}, Val Acc@1: {val_acc:.2f}%, Acc@5: {val_acc5:.2f}%")
+
+            self.logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+            self.logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
             self.logger.info(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
             
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                # ensure directory exists and save to configured checkpoint path
-                CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-                best_ckpt_path = CHECKPOINT_PATH
+            def save_checkpoint(epoch, loss, accuracy, name = None, msg = None):
+                CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+                if name is None:
+                    name = f"checkpoint_epoch_{epoch+1}.pth"
+                ckpt_path = CHECKPOINT_DIR / name
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
                     "optimizer_state_dict": self.optimizer.state_dict(),
-                    "loss": val_loss,
-                    "accuracy": val_acc,
+                    "loss": loss,
+                    "accuracy": accuracy,
                     "history": {
                         "train_losses": self.train_losses,
                         "val_losses": self.val_losses,
                         "train_accuracies": self.train_accuracies,
                         "val_accuracies": self.val_accuracies,
-                        "train_top5_accuracies": self.train_top5_accuracies,
-                        "val_top5_accuracies": self.val_top5_accuracies,
                     }
-                }, best_ckpt_path.as_posix())
-                self.logger.info(f"Model saved to {best_ckpt_path}")
+                }, ckpt_path.as_posix())
+                self.logger.info(f"{msg}: {ckpt_path}")
+            
+            # Early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                
+                save_checkpoint(epoch, val_loss, val_acc, 
+                                name = "best_model.pth",
+                                msg = f"Saved best model")
             else:
                 patience_counter += 1
                 self.logger.info(f"Patience: {patience_counter}/{self.patience}")
@@ -345,24 +281,9 @@ class AlexNet():
             factor = max(1, self.num_epochs // 10)
             # Milestone checkpoints
             if (epoch + 1) % factor == 0:
-                CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-                ckpt_path = CHECKPOINT_PATH.parent / f"checkpoint_epoch_{epoch+1}.pth"
-                torch.save({
-                    "epoch": epoch,
-                    "model_state_dict": self.model.state_dict(),
-                    "optimizer_state_dict": self.optimizer.state_dict(),
-                    "loss": val_loss,
-                    "accuracy": val_acc,
-                    "history": {
-                        "train_losses": self.train_losses,
-                        "val_losses": self.val_losses,
-                        "train_accuracies": self.train_accuracies,
-                        "val_accuracies": self.val_accuracies,
-                        "train_top5_accuracies": self.train_top5_accuracies,
-                        "val_top5_accuracies": self.val_top5_accuracies,
-                    }
-                }, ckpt_path.as_posix())
-                self.logger.info(f"Saved milestone checkpoint: {ckpt_path}")
+                save_checkpoint(epoch, val_loss, val_acc, 
+                                name = f"checkpoint_epoch_{epoch+1}.pth",
+                                msg = f"Saved milestone checkpoint")
 
             # Stop if validation loss doesn't improve
             if patience_counter >= self.patience:
@@ -381,45 +302,7 @@ class AlexNet():
     #? ------------------------ Test -------------------------
         
     def test(self):
-        
-        self.model.eval()
-        total_loss = 0.0
-        correct = 0
-        correct5 = 0
-        total = 0
-        
-        with torch.no_grad():
-            progress_bar = tqdm(self.test_loader, desc="Testing")
-            
-            for images, labels in progress_bar:
-                images = images.to(self.device, non_blocking=True)
-                if self.device.type == 'cuda':
-                    images = images.contiguous(memory_format=torch.channels_last)
-                labels = labels.to(self.device, non_blocking=True)
-                
-                # Mixed precision inference
-                with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
-                    outputs = self.model(images)
-                    loss = self.criterion(outputs, labels)
-                
-                total_loss += loss.item()
-                _, predicted = torch.max(outputs, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-                top5 = torch.topk(outputs, k=5, dim=1).indices
-                correct5 += top5.eq(labels.view(-1,1)).any(dim=1).sum().item()
-                
-                progress_bar.set_postfix({
-                    'Loss': f'{loss.item():.4f}',
-                    'Acc@1': f'{100 * correct / total:.2f}%',
-                    'Acc@5': f'{100 * correct5 / total:.2f}%'
-                })
-                
-        test_loss = total_loss / len(self.test_loader)
-        test_accuracy = 100 * correct / total
-        test_accuracy5 = 100 * correct5 / total
-        
-        return test_loss, test_accuracy, test_accuracy5
+        return self.evaluate(self.test_loader)
     
     def load_model(self, model_path: str):
         # Normalize to Path and fallback to configured checkpoint path
@@ -451,8 +334,6 @@ class AlexNet():
             self.val_losses = history.get('val_losses', [])
             self.train_accuracies = history.get('train_accuracies', [])
             self.val_accuracies = history.get('val_accuracies', [])
-            self.train_top5_accuracies = history.get('train_top5_accuracies', [])
-            self.val_top5_accuracies = history.get('val_top5_accuracies', [])
             
         print(f"Model loaded from {path}")
         print(f"Best validation loss: {checkpoint['loss']:.4f}")
@@ -481,13 +362,9 @@ class AlexNet():
         
         # Plot accuracies
         plt.subplot(1, 2, 2)
-        plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc@1')
-        plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc@1')
-        if len(self.train_top5_accuracies) == len(self.train_accuracies):
-            plt.plot(epochs, self.train_top5_accuracies, 'b--', label='Train Acc@5')
-        if len(self.val_top5_accuracies) == len(self.val_accuracies):
-            plt.plot(epochs, self.val_top5_accuracies, 'r--', label='Val Acc@5')
-        plt.title('Accuracy (Top-1 and Top-5)')
+        plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc')
+        plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc')
+        plt.title('Accuracy (Top-1)')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy (%)')
         plt.legend()

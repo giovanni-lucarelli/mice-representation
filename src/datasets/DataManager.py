@@ -20,8 +20,7 @@ from torchvision.datasets import ImageFolder
 
 from pathlib import Path
 
-from datasets.mini_imagenet import MiniImageNet
-from datasets.adapters import AsTupleDataset
+from datasets.mini_imagenet import MiniImageNet, AsTupleDataset
 
 #? -------------------------------------------------------------- #
 #?                         Data Manager                           #
@@ -56,28 +55,21 @@ class DataManager():
         self.split_seed = split_seed
         
         if train_transform is None:
-            
-            transforms_list = []
-            # Train transform: resize/crop to 224, augmentation, tensor, normalization
-            if NO_CROP:
-                transforms_list.append(transforms.Resize((224, 224)))   # direct resize; no random crop
-            else:
-                transforms_list.append(transforms.RandomResizedCrop(224, scale=(0.08, 1.0))) # Standard per ImageNet
-            transforms_list.extend([
+            self.train_transform = transforms.Compose([
+                transforms.RandomResizedCrop(224, scale=(0.08, 1.0)), # Standard per ImageNet
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225]),
             ])
-            self.train_transform = transforms.Compose(transforms_list)
         else:
             self.train_transform = train_transform
 
         if eval_transform is None:
-            # Eval transform: deterministic resize + normalization only
             self.eval_transform = transforms.Compose([
-                transforms.Resize((224, 224)),   # direct resize; no random crop
+                transforms.Resize(224),
+                transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225]),
@@ -92,10 +84,6 @@ class DataManager():
         self.val_dataset    : Optional[Subset]          = None
         self.test_dataset   : Optional[Subset]          = None
         
-        # Mapping between numeric class ids and human-readable names
-        self.id_to_labels   : Dict[int, str]            = {}
-        self.labels_to_id   : Dict[str, int]            = {}
-        
         # DataLoader attributes
         self.train_loader   : Optional[DataLoader] = None
         self.val_loader     : Optional[DataLoader] = None
@@ -103,41 +91,6 @@ class DataManager():
         
         # Dataset info
         self.num_classes : Optional[int]    = None
-        self.class_names : Optional[list]   = None
-        
-    def load_labels(self):
-        """Load mapping file and build id <-> label dictionaries.
-
-        Expected file format per line: "<wnid> <class_index> <class_name>".
-        The class index is converted to 0-based.
-        """
-        if not self.labels_path.exists():
-            raise FileNotFoundError(f"Labels path {self.labels_path} does not exist")
-        
-        with open(self.labels_path, "r") as f:
-            labels_lines = f.readlines()
-        
-        # Parse labels: example "n02119789 1 kit_fox"
-        for line in labels_lines:
-            parts = line.strip().split()
-            if len(parts) >= 3:
-                class_id = int(parts[1]) - 1  # 0-based index
-                class_name = parts[2].replace('_', ' ')
-                # forward lookup dictionary
-                self.id_to_labels[class_id] = class_name
-                # reverse lookup dictionary
-                self.labels_to_id[class_name] = class_id
-        
-    def _get_class_name(self, class_id: int) -> str:
-        """Return human-readable class name given a numeric id."""
-        if self.id_to_labels is None:
-            raise ValueError("Labels not loaded. Call load_labels() first.")
-        
-        try:
-            return self.id_to_labels[class_id]
-        except KeyError:
-            raise ValueError(f"Class ID '{class_id}' not found in labels.")
-    
         
     def load_data(self):
         """Create base MiniImageNet dataset and populate class metadata."""
@@ -158,13 +111,9 @@ class DataManager():
         self._base_dataset = ImageFolder(root=base_root, transform=None)
         self.dataset = self._base_dataset
 
-        self.load_labels()
-
         self.num_classes = len(self.dataset.classes)
-        self.class_names = [self._get_class_name(i) for i in range(self.num_classes)]
 
         print(f"Dataset loaded: {len(self.dataset)} samples, {self.num_classes} classes")
-        print(f"Classes: {self.class_names}")
 
     def _has_predefined_splits(self) -> bool:
         """Return True if dataset directory contains train/val or train/test folders."""
@@ -256,6 +205,7 @@ class DataManager():
 
         g = torch.Generator()
         g.manual_seed(self.split_seed)
+        
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,

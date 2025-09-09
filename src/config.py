@@ -39,7 +39,8 @@ DATA_DIET = False # not implemented yet
 USE_CUDA: bool = True
 
 #? ------------- checkpoint path -------------
-CHECKPOINT_PATH = ROOT / "checkpoints" / "best_model.pth"
+CHECKPOINT_DIR = ROOT / "checkpoints"
+CHECKPOINT_PATH = CHECKPOINT_DIR / "best_model.pth"
 
 #? ------------- training constants -------------
 NUM_EPOCHS = 100
@@ -58,11 +59,6 @@ DROPOUT_RATE = 0.3
 PATIENCE = 15
 LABEL_SMOOTHING = 0.1
 NO_CROP = False
-
-#? ------------- scheduler constants -------------
-SCHEDULER = "ReduceLROnPlateau" # "ReduceLROnPlateau" or "MultiStepLR"
-SCHEDULER_MILESTONES = [30, 60, 90]
-SCHEDULER_GAMMA = 0.1
 
 #? ------------- Notebook constants -------------
 # Notebook flags (kept for notebooks; not used by core Python modules)
