@@ -1,0 +1,25 @@
+data:
+  batch_size: 256
+  num_workers: 15
+  train_split: 0.7
+  val_split: 0.15
+  split_seed: 42
+
+train:
+  num_epochs: 300
+  optimizer:
+    name: AdamW
+    learning_rate: 3e-4
+    weight_decay: 1e-4
+  dropout_rate: 0.3
+  early_stopping_patience: 15
+  label_smoothing: 0.1
+  
+  checkpoint_sub_dir: self-supervised_no-diet
+  loss_type: ir
+
+diet:
+  randomresizedcrop: true
+  grayscale: false
+  blur: false
+  noise: false

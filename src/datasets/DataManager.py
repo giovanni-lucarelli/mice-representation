@@ -7,12 +7,11 @@ This module defines `DataManager`, a utility to:
 - expose ready-to-use PyTorch `DataLoader`s.
 """
 
-from config import *
 import torch
 from torchvision import transforms
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import os
 from sklearn.model_selection import train_test_split
@@ -20,7 +19,7 @@ from torchvision.datasets import ImageFolder
 
 from pathlib import Path
 
-from datasets.mini_imagenet import MiniImageNet, AsTupleDataset
+from .mini_imagenet import MiniImageNet, AsTupleDataset
 
 #? -------------------------------------------------------------- #
 #?                         Data Manager                           #
@@ -29,15 +28,15 @@ from datasets.mini_imagenet import MiniImageNet, AsTupleDataset
 class DataManager():
     """Manage MiniImageNet dataset, splits, transforms, and data loaders."""
     def __init__(self,
-                 labels_path    : str                           = LABELS_PATH,
-                 data_path      : str                           = MINI_IMAGENET_PATH,
+                 data_path      : str,
                  batch_size     : int                           = 512,
                  train_transform: Optional[transforms.Compose]  = None,
                  eval_transform : Optional[transforms.Compose]  = None,
                  num_workers    : int                           = 8,
                  train_split    : float                         = 0.7,
                  val_split      : float                         = 0.15,
-                 split_seed     : int                           = SPLIT_SEED):
+                 split_seed     : int                           = 42,
+                 use_cuda       : bool                          = True):
         """Initialize manager configuration and default transforms.
 
         - train_split and val_split are fractions of the whole dataset;
@@ -45,20 +44,19 @@ class DataManager():
         - If no transforms are provided, sensible defaults for 224x224 images are used.
         - split_seed controls reproducible shuffling in dataset splits.
         """
-        self.data_path = data_path
+        self.data_path = Path(data_path)
             
-        self.labels_path = Path(labels_path)
         self.num_workers = num_workers
         self.batch_size = batch_size
         self.train_split = train_split
         self.val_split = val_split
         self.split_seed = split_seed
+        self.use_cuda = use_cuda
         
         if train_transform is None:
             self.train_transform = transforms.Compose([
-                transforms.RandomResizedCrop(224, scale=(0.08, 1.0)), # Standard per ImageNet
+                transforms.RandomResizedCrop(224), # Standard per ImageNet
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225]),
@@ -76,6 +74,20 @@ class DataManager():
             ])
         else:
             self.eval_transform = eval_transform
+
+        # Ensure transforms always output tensors (not dicts)
+        def _ensure_tensor_transform(t):
+            if t is None:
+                return None
+            def _call(inp: Any):
+                out = t(inp)
+                if isinstance(out, dict):
+                    return out.get('imgs', out.get('image', out))
+                return out
+            return _call
+
+        self.train_transform = _ensure_tensor_transform(self.train_transform)
+        self.eval_transform = _ensure_tensor_transform(self.eval_transform)
             
         # Dataset attributes
         self.dataset        : Optional[ImageFolder]     = None
@@ -126,7 +138,6 @@ class DataManager():
             root=str(self.data_path),
             split=split,
             transform=transform,
-            label_path=str(self.labels_path) if self.labels_path.exists() else None,
             verbose=False,
         )
         return AsTupleDataset(ds)
@@ -194,7 +205,7 @@ class DataManager():
         - `persistent_workers` disabled for stability across restarts.
         - `prefetch_factor` configurable via env var when workers > 0.
         """
-        use_cuda = USE_CUDA and torch.cuda.is_available()
+        use_cuda = self.use_cuda and torch.cuda.is_available()
         pin = use_cuda
         effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
         persistent = False

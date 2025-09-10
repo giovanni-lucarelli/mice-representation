@@ -24,7 +24,6 @@ mean amplitude of 19.0 +- 1.6 degrees.
  (10.127/64, 12.8/64) = (0.158, 0.200)
 """
 
-
 DEFAULT_ROLL_DEG = 0.0            # ± degrees
 DEFAULT_TRANSLATE = (0, 0)#(0.158, 0.200)  # (x frac, y frac) 
 
@@ -38,11 +37,6 @@ MOUSE_CSF_TARGET = {
     0.066: 0.04,
     0.031: 0.23,
 }
-# # src/pipeline/mouse_params.py
-# BLUR_SIGMA_GRID = np.arange(1.5, 2.5, 0.1)   # around 1.82
-# NOISE_STD_GRID  = np.arange(0.1, 0.25, 0.01)  # around 0.21
-# BLUR_KER_GRID   = np.array([29])        # fixed (sufficient radius for all σ)
-# PATCH_SIZE_GRID = np.array([24, 28, 32])  # check local neighborhood of 16
 
 BLUR_SIGMA_GRID = np.concatenate([
     np.arange(1.55, 1.76, 0.01),   # around the mode ~1.6–1.7

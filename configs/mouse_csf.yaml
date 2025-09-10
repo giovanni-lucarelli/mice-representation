@@ -1,0 +1,14 @@
+# path json
+path:
+
+# point to variables in the json
+
+params:
+  blur_sigma:
+  blur_ker:
+  noise_std:
+
+# else (?)
+
+
+

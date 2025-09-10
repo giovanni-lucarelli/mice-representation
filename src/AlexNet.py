@@ -13,9 +13,12 @@ from tqdm import tqdm
 from typing import Optional
 import os
 from pathlib import Path
+import sys
 
-from config import *
-from datasets.DataManager import DataManager
+# append src to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from .datasets.DataManager import DataManager
 
 # Reduce /dev/shm usage to avoid DataLoader bus errors
 try:
@@ -25,14 +28,14 @@ try:
 except Exception:
     pass
 
-def _get_run_logger():
-    """Create and return a file-only logger under ROOT/log."""
+def _get_run_logger(log_dir: Path):
+    """Create and return a file-only logger under the provided log directory."""
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = LOG_DIR / f"train_{timestamp}.log"
+    log_path = log_dir / f"train_{timestamp}.log"
     logger = logging.getLogger(f"mice_repr.train.{timestamp}")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
@@ -55,13 +58,17 @@ class AlexNet():
                  device      : Optional[torch.device]                   = None,
                  criterion   : Optional[torch.nn.Module]                = None,
                  data_manager: Optional[DataManager]                    = None,
-                 optimizer   : Optional[torch.optim.Optimizer] | str    = OPTIMIZER,
-                 num_epochs  : int                                      = NUM_EPOCHS,
-                 learning_rate: float                                   = LEARNING_RATE,
-                 weight_decay: float                                    = WEIGHT_DECAY,
-                 dropout_rate: float                                    = DROPOUT_RATE,
-                 patience    : int                                      = PATIENCE,
-                 label_smoothing: float                                 = LABEL_SMOOTHING
+                 optimizer   : Optional[torch.optim.Optimizer] | str    = "AdamW",
+                 num_epochs  : int                                      = 100,
+                 learning_rate: float                                   = 3e-4,
+                 weight_decay: float                                    = 1e-4,
+                 dropout_rate: float                                    = 0.3,
+                 patience    : int                                      = 15,
+                 label_smoothing: float                                 = 0.1,
+                 log_dir: Optional[Path]                                = None,
+                 checkpoint_dir: Optional[Path]                         = None,
+                 artifacts_dir: Optional[Path]                          = None,
+                 use_cuda: bool                                         = True,
              ):
         
         self.model        : Optional[torch.nn.Module]       = model
@@ -74,15 +81,19 @@ class AlexNet():
         self.dropout_rate : float                           = dropout_rate
         self.patience     : int                             = patience
         self.start_epoch  : int                             = 0
+        self.use_cuda     : bool                            = use_cuda
+        self.checkpoint_dir: Path                           = (checkpoint_dir or Path(os.environ.get("CHECKPOINT_DIR_OVERRIDE", "checkpoints")).resolve())
+        self.log_dir: Path                                  = (log_dir or (self.checkpoint_dir / "log")).resolve()
+        self.artifacts_dir: Path                            = (artifacts_dir or (self.checkpoint_dir / "artifacts")).resolve()
         
         # initialize file logger (file-only, no console output)
-        self.logger, self.log_file_path = _get_run_logger()
+        self.logger, self.log_file_path = _get_run_logger(self.log_dir)
 
         if model is None:
             self.model = models.alexnet(weights=None, num_classes=self.data_manager.num_classes, dropout=self.dropout_rate)
         
         if device is None:
-            self.device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
+            self.device = torch.device("cuda" if (self.use_cuda and torch.cuda.is_available()) else "cpu")
             self.logger.info(f"Using device: {self.device}")
             # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
             if self.device.type == 'cuda':
@@ -247,10 +258,10 @@ class AlexNet():
             self.logger.info(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
             
             def save_checkpoint(epoch, loss, accuracy, name = None, msg = None):
-                CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+                self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
                 if name is None:
                     name = f"checkpoint_epoch_{epoch+1}.pth"
-                ckpt_path = CHECKPOINT_DIR / name
+                ckpt_path = self.checkpoint_dir / name
                 torch.save({
                     "epoch": epoch,
                     "model_state_dict": self.model.state_dict(),
@@ -308,12 +319,13 @@ class AlexNet():
         # Normalize to Path and fallback to configured checkpoint path
         path = Path(model_path)
         if not path.exists():
-            print(f"Path {path} does not exist, checking {CHECKPOINT_PATH}")
-            self.logger.warning(f"Path {path} does not exist, checking {CHECKPOINT_PATH}")
-            if CHECKPOINT_PATH.exists():
-                path = CHECKPOINT_PATH
+            default_best = self.checkpoint_dir / "best_model.pth"
+            print(f"Path {path} does not exist, checking {default_best}")
+            self.logger.warning(f"Path {path} does not exist, checking {default_best}")
+            if default_best.exists():
+                path = default_best
             else:
-                alt_path = CHECKPOINT_PATH.parent / path.name
+                alt_path = self.checkpoint_dir / path.name
                 if alt_path.exists():
                     path = alt_path
         if not path.exists():
@@ -371,54 +383,11 @@ class AlexNet():
         plt.grid(True)
         
         plt.tight_layout()
-        plt.savefig(ROOT / 'assets/training_history.png', dpi=300, bbox_inches='tight')
-        plt.show()
-        
-                
-if __name__ == "__main__":
-
-    # detect device
-    device = torch.device("cuda" if (USE_CUDA and torch.cuda.is_available()) else "cpu")
-    print(f"Using device: {device}")
-    print("Optimizations applied: Mixed Precision, Optimized DataLoader, Larger Batch Size")
-
-    data_manager = DataManager(
-        data_path=MINI_IMAGENET_PATH,
-        labels_path=LABELS_PATH,
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKERS,
-        train_split=TRAIN_SPLIT,
-        val_split=VAL_SPLIT,
-        split_seed=SPLIT_SEED,
-    )
-    data_manager.setup()
-    
-    model_manager = AlexNet(
-        data_manager=data_manager,
-        num_epochs=NUM_EPOCHS,
-        learning_rate=LEARNING_RATE,
-        weight_decay=WEIGHT_DECAY,
-        dropout_rate=DROPOUT_RATE,
-        patience=PATIENCE,
-        label_smoothing=LABEL_SMOOTHING
-    )
-    
-    # Optional warm-start from best checkpoint for fine-tuning
-    if os.environ.get("FINETUNE_FROM_BEST", "0") == "1" and CHECKPOINT_PATH.exists():
         try:
-            model_manager.load_model(CHECKPOINT_PATH.as_posix())
-            print("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
-            model_manager.logger.info("Warm-started from best_model.pth (weights only). Optimizer reset for fine-tuning.")
-        
-        except Exception as e:
-            print(f"Could not warm-start from best_model.pth: {e}")
-            model_manager.logger.warning(f"Could not warm-start from best_model.pth: {e}")
+            self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        out_path = self.artifacts_dir / 'training_history.png'
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.show()
     
-    # Train the model
-    training_history = model_manager.train()
-    
-    # Plot training history
-    model_manager.plot_training_history()
-    
-    # Test the model
-    model_manager.test()
