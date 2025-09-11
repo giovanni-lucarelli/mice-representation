@@ -8,4 +8,4 @@ AllenData/
 
 # logs
 *.log
-*_epoch_*.pth
+*.pth
