@@ -66,15 +66,15 @@ class TrainSchedulerConfig:
 
 @dataclass
 class TrainCoreConfig:
-    num_epochs: int = 300
+    num_epochs: int = 100
     optimizer: TrainOptimizerConfig = field(default_factory=TrainOptimizerConfig)
     label_smoothing: float = 0.1
     dropout_rate: float = 0.3
     early_stopping_patience: int = 15
     scheduler: TrainSchedulerConfig = field(default_factory=TrainSchedulerConfig)
     checkpoint_sub_dir: str = "default"
-    loss_type: str = "cross_entropy"
-    save_every_n: int = 30
+    loss_type: str = "CrossEntropyLoss"
+    save_every_n: int = 10
 
 
 @dataclass
@@ -91,7 +91,6 @@ class LoggingConfig:
 
 @dataclass
 class DietConfig:
-    randomresizedcrop: bool = True
     grayscale: bool = False
     blur: bool = False
     noise: bool = False

@@ -66,6 +66,7 @@ class AlexNet():
                  checkpoint_dir: Optional[Path]                         = None,
                  artifacts_dir: Optional[Path]                          = None,
                  use_cuda: bool                                         = True,
+                 save_every_n: int                                      = 10,
              ):
         
         self.model        : Optional[torch.nn.Module]       = model
@@ -77,6 +78,7 @@ class AlexNet():
         self.weight_decay : float                           = weight_decay
         self.dropout_rate : float                           = dropout_rate
         self.patience     : int                             = patience
+        self.save_every_n : int                             = save_every_n
         self.start_epoch  : int                             = 0
         self.use_cuda     : bool                            = use_cuda
         self.checkpoint_dir: Path                           = (checkpoint_dir or Path(os.environ.get("CHECKPOINT_DIR_OVERRIDE", "checkpoints")).resolve())
@@ -232,6 +234,8 @@ class AlexNet():
             patience=5
         )
         
+        save_every_n = self.save_every_n
+        
         # If resuming, start from self.start_epoch
         if self.start_epoch > 0:
             self.logger.info(f"Resuming training from epoch {self.start_epoch}.")
@@ -286,9 +290,9 @@ class AlexNet():
                 patience_counter += 1
                 self.logger.info(f"Patience: {patience_counter}/{self.patience}")
                 
-            factor = max(1, self.num_epochs // 10)
+            
             # Milestone checkpoints
-            if (epoch + 1) % factor == 0:
+            if (epoch + 1) % save_every_n == 0:
                 save_checkpoint(epoch, val_loss, val_acc, 
                                 name = f"checkpoint_epoch_{epoch+1}.pth",
                                 msg = f"Saved milestone checkpoint")

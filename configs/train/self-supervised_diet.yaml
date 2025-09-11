@@ -16,10 +16,11 @@ train:
   label_smoothing: 0.1
   
   checkpoint_sub_dir: self-supervised_diet
-  loss_type: ir
+  loss_type: InstanceDiscriminationLoss
+
+  save_every_n: 10
 
 diet:
-  randomresizedcrop: true
   grayscale: true
   blur: true
   noise: true

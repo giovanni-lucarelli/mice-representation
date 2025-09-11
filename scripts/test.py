@@ -82,6 +82,7 @@ def main() -> None:
         checkpoint_dir=dirs["checkpoint_dir"],
         artifacts_dir=dirs["artifacts_dir"],
         use_cuda=resolved.experiment.device.use_cuda,
+        save_every_n=int(train_cfg.save_every_n),
     )
 
     # Load checkpoint

@@ -16,10 +16,11 @@ train:
   label_smoothing: 0.1
   
   checkpoint_sub_dir: supervised_diet
-  loss_type: cross_entropy
+  loss_type: CrossEntropyLoss
+
+  save_every_n: 10
 
 diet:
-  randomresizedcrop: true
   grayscale: true
   blur: true
   noise: true

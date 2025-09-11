@@ -10,5 +10,3 @@ data_sources:
 allen_data:
   neuropixels_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl
   calcium_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_calcium_visual_data_with_reliabilities.pkl
-
-
