@@ -7,4 +7,5 @@ AllenData/
 # checkpoints/
 
 # logs
-log/
+*.log
+*_epoch_*.pth

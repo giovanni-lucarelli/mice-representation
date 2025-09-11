@@ -15,22 +15,21 @@ from src.utils.config import (
     select_device,
 )
 
-
-from src.pipeline.mouse_transforms import mouse_transform
 from src.datasets.DataManager import DataManager
 from src.AlexNet import AlexNet
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train model with YAML configs")
+    p = argparse.ArgumentParser(description="Test model with YAML configs")
     p.add_argument("--project-config", type=str, default="configs/project.yaml")
     p.add_argument("--config", type=str, required=True, help="Experiment YAML file")
+    p.add_argument("--checkpoint", type=str, default="best_model.pth", help="Checkpoint to load (name or absolute path)")
     p.add_argument(
         "--set",
         type=str,
         nargs="*",
         default=[],
-        help="Override keys, e.g. train.num_epochs=100 train.optimizer.learning_rate=1e-4",
+        help="Override keys, e.g. device.device=cuda",
     )
     return p.parse_args()
 
@@ -44,38 +43,17 @@ def main() -> None:
         overrides=args.__dict__.get("set", []),
     )
 
+    # Ensure run directory structure (timestamped) even for testing
     dirs = ensure_dirs(resolved)
     flat["run_dir"] = dirs["run_dir"].as_posix()
-    # persist resolved config next to run
     save_resolved_config(flat, dirs["run_dir"] / "resolved_config.yaml")
 
     # determinism and device
     seed_everything(resolved.experiment.device.seed)
     device_str = select_device(resolved.experiment.device)
     device = torch.device(device_str)
-    
-    # Transformations
-    train_transform = mouse_transform(
-        img_size = 224,
-        blur_sig = 1.76,
-        noise_std = 0.25,
-        to_gray = resolved.experiment.diet.grayscale,
-        apply_blur = resolved.experiment.diet.blur,
-        apply_noise = resolved.experiment.diet.noise,
-        train = True, # enables augmentation
-    )
-    
-    eval_transform = mouse_transform(
-        img_size = 224,
-        blur_sig = 1.76,
-        noise_std = 0.25,
-        to_gray = resolved.experiment.diet.grayscale,
-        apply_blur = resolved.experiment.diet.blur,
-        apply_noise = resolved.experiment.diet.noise,
-        train = False,
-    )
 
-    # Data manager
+    # Data manager (evaluation transforms only)
     data_cfg = resolved.experiment.data
     dm = DataManager(
         data_path=str((resolved.root / Path(data_cfg.data_path)).resolve())
@@ -87,8 +65,6 @@ def main() -> None:
         val_split=float(data_cfg.val_split),
         split_seed=int(data_cfg.split_seed),
         use_cuda=resolved.experiment.device.use_cuda,
-        train_transform=train_transform,
-        eval_transform=eval_transform,
     )
     dm.setup()
 
@@ -108,9 +84,40 @@ def main() -> None:
         use_cuda=resolved.experiment.device.use_cuda,
     )
 
-    history = model.train()
-    model.plot_training_history()
-    model.test()
+    # Load checkpoint
+    ckpt_arg = args.checkpoint
+    ckpt_path = ckpt_arg
+    if not os.path.isabs(ckpt_arg):
+        # Prefer current run dir
+        candidate = dirs["checkpoint_dir"] / ckpt_arg
+        if candidate.exists():
+            ckpt_path = candidate.as_posix()
+        else:
+            # Fallback: search latest previous run under the same experiment subdir
+            base_dir = dirs["checkpoint_dir"].parent
+            try:
+                subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
+                # sort by mtime desc (latest first)
+                subdirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                found = None
+                for d in subdirs:
+                    cand = d / ckpt_arg
+                    if cand.exists():
+                        found = cand
+                        break
+                if found is not None:
+                    ckpt_path = found.as_posix()
+                else:
+                    # final attempt: if a pre-timestamp layout exists (file directly under base_dir)
+                    legacy = base_dir / ckpt_arg
+                    ckpt_path = legacy.as_posix()
+            except Exception:
+                ckpt_path = candidate.as_posix()
+    model.load_model(ckpt_path)
+
+    # Evaluate on test set
+    test_loss, test_acc = model.test()
+    print(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
 
 
 if __name__ == "__main__":

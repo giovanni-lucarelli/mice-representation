@@ -181,20 +181,26 @@ def load_and_resolve_configs(
 
 
 def ensure_dirs(resolved: ResolvedConfig) -> Dict[str, Path]:
+    from datetime import datetime
     root = resolved.root
     paths = resolved.project.paths
-    run_dir = resolved.run_dir
+    base_run_dir = resolved.run_dir
+    # timestamped subfolder per run
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = (base_run_dir / ts).resolve()
+    # reflect change into resolved object
+    resolved.run_dir = run_dir
 
-    # log dir inside run dir for isolation
-    log_dir = run_dir / "log"
     ckpt_dir = run_dir
     # keep artifacts colocated with the run for reproducibility
     art_dir = run_dir / "artifacts"
 
-    for p in [run_dir, log_dir, ckpt_dir, art_dir]:
+    for p in [run_dir, ckpt_dir, art_dir]:
         p.mkdir(parents=True, exist_ok=True)
 
-    return {"run_dir": run_dir, "log_dir": log_dir, "checkpoint_dir": ckpt_dir, "artifacts_dir": art_dir}
+    log_file = run_dir / "train.log"
+
+    return {"run_dir": run_dir, "log_file": log_file, "checkpoint_dir": ckpt_dir, "artifacts_dir": art_dir}
 
 
 def save_resolved_config(flat: Dict[str, Any], out_path: Path) -> None:

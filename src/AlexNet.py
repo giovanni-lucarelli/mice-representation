@@ -28,15 +28,12 @@ try:
 except Exception:
     pass
 
-def _get_run_logger(log_dir: Path):
-    """Create and return a file-only logger under the provided log directory."""
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = log_dir / f"train_{timestamp}.log"
-    logger = logging.getLogger(f"mice_repr.train.{timestamp}")
+def _get_run_logger(log_file: Path):
+    """Create and return a file-only logger writing to the provided file path."""
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_path = log_file
+    run_id = log_file.parent.name
+    logger = logging.getLogger(f"mice_repr.train.{run_id}")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         file_handler = logging.FileHandler(log_path.as_posix())
@@ -65,7 +62,7 @@ class AlexNet():
                  dropout_rate: float                                    = 0.3,
                  patience    : int                                      = 15,
                  label_smoothing: float                                 = 0.1,
-                 log_dir: Optional[Path]                                = None,
+                 log_file: Optional[Path]                               = None,
                  checkpoint_dir: Optional[Path]                         = None,
                  artifacts_dir: Optional[Path]                          = None,
                  use_cuda: bool                                         = True,
@@ -83,11 +80,11 @@ class AlexNet():
         self.start_epoch  : int                             = 0
         self.use_cuda     : bool                            = use_cuda
         self.checkpoint_dir: Path                           = (checkpoint_dir or Path(os.environ.get("CHECKPOINT_DIR_OVERRIDE", "checkpoints")).resolve())
-        self.log_dir: Path                                  = (log_dir or (self.checkpoint_dir / "log")).resolve()
+        self.log_file: Path                                 = (log_file or (self.checkpoint_dir / "train.log")).resolve()
         self.artifacts_dir: Path                            = (artifacts_dir or (self.checkpoint_dir / "artifacts")).resolve()
         
         # initialize file logger (file-only, no console output)
-        self.logger, self.log_file_path = _get_run_logger(self.log_dir)
+        self.logger, self.log_file_path = _get_run_logger(self.log_file)
 
         if model is None:
             self.model = models.alexnet(weights=None, num_classes=self.data_manager.num_classes, dropout=self.dropout_rate)
@@ -355,7 +352,7 @@ class AlexNet():
         self.logger.info(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
         self.logger.info(f"start_epoch set to {self.start_epoch}")
         
-    def plot_training_history(self):
+    def plot_training_history(self, show: bool = False, max_loss: Optional[float] = None, max_acc: Optional[int] = None, max_epoch: Optional[int] = None):
         """Plot training and validation curves."""
             
         epochs = range(1, len(self.train_losses) + 1)
@@ -372,10 +369,23 @@ class AlexNet():
         plt.legend()
         plt.grid(True)
         
+        if max_loss is not None:
+            plt.ylim(0, max_loss)
+        
+        if max_epoch is not None:
+            plt.xlim(0, max_epoch)
+            
         # Plot accuracies
         plt.subplot(1, 2, 2)
         plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc')
         plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc')
+        
+        if max_acc is not None:
+            plt.ylim(0, max_acc)
+        
+        if max_epoch is not None:
+            plt.xlim(0, max_epoch)
+            
         plt.title('Accuracy (Top-1)')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy (%)')
@@ -389,5 +399,21 @@ class AlexNet():
             pass
         out_path = self.artifacts_dir / 'training_history.png'
         plt.savefig(out_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        if show:
+            plt.show()
+        # Also save CSV with history for programmatic access
+        try:
+            import csv
+            csv_path = self.artifacts_dir / 'training_history.csv'
+            with open(csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["epoch", "train_loss", "val_loss", "train_acc", "val_acc"]) 
+                for i, e in enumerate(epochs):
+                    tl = self.train_losses[i] if i < len(self.train_losses) else ''
+                    vl = self.val_losses[i] if i < len(self.val_losses) else ''
+                    ta = self.train_accuracies[i] if i < len(self.train_accuracies) else ''
+                    va = self.val_accuracies[i] if i < len(self.val_accuracies) else ''
+                    writer.writerow([int(e), float(tl), float(vl), float(ta), float(va)])
+        except Exception:
+            pass
     
