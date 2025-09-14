@@ -9,7 +9,7 @@ This module defines `DataManager`, a utility to:
 
 import torch
 from torchvision import transforms
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, Dataset
 from tqdm import tqdm
 from typing import Optional, Dict, Any
 
@@ -25,6 +25,29 @@ from .mini_imagenet import MiniImageNet, AsTupleDataset
 #?                         Data Manager                           #
 #? -------------------------------------------------------------- #
 
+class IndexedDataset(Dataset):
+    """Wrap a dataset to also return its own index as first element.
+
+    This provides stable per-sample indices in [0, len(dataset)) independent of any
+    underlying base dataset indices, which is ideal for memory banks.
+    """
+    def __init__(self, dataset: Dataset):
+        self.dataset = dataset
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index: int):
+        item = self.dataset[index]
+        if isinstance(item, tuple):
+            if len(item) == 2:
+                image, label = item
+                return index, image, label
+            else:
+                return (index,) + item
+        return index, item, -1
+
+
 class DataManager():
     """Manage MiniImageNet dataset, splits, transforms, and data loaders."""
     def __init__(self,
@@ -36,7 +59,8 @@ class DataManager():
                  train_split    : float                         = 0.7,
                  val_split      : float                         = 0.15,
                  split_seed     : int                           = 42,
-                 use_cuda       : bool                          = True):
+                 use_cuda       : bool                          = True,
+                 return_indices : bool                          = False):
         """Initialize manager configuration and default transforms.
 
         - train_split and val_split are fractions of the whole dataset;
@@ -52,6 +76,7 @@ class DataManager():
         self.val_split = val_split
         self.split_seed = split_seed
         self.use_cuda = use_cuda
+        self.return_indices = return_indices
         
         if train_transform is None:
             self.train_transform = transforms.Compose([
@@ -217,8 +242,12 @@ class DataManager():
         g = torch.Generator()
         g.manual_seed(self.split_seed)
         
+        train_ds = self.train_dataset
+        if self.return_indices:
+            train_ds = IndexedDataset(train_ds)
+
         self.train_loader = DataLoader(
-            self.train_dataset,
+            train_ds,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=effective_workers,

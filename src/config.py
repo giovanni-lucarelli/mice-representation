@@ -91,6 +91,7 @@ class TrainCoreConfig:
     num_epochs: int = 100
     dropout_rate: float = 0.3
     early_stopping_patience: int = 15
+    self_supervised: bool = False
     checkpoint_sub_dir: str = "default"
     optimizer: TrainOptimizerConfig = field(default_factory=TrainOptimizerConfig)
     scheduler: TrainSchedulerConfig = field(default_factory=TrainSchedulerConfig)

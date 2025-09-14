@@ -2,43 +2,22 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.nn import CrossEntropyLoss
 from torch.amp import autocast, GradScaler
 from torchvision import models
-import logging
-from datetime import datetime
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 from typing import Optional, Dict, Any
 import os
 from pathlib import Path
-import sys
 from copy import deepcopy
 
 # append src to path
+import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ..datasets.DataManager import DataManager
-from .utils import _get_run_logger
-from ..config import seed_everything, TrainSchedulerConfig
-from .utils import coerce_config_scalars as _coerce_config_scalars
-
-# Reduce /dev/shm usage to avoid DataLoader bus errors
-try:
-    torch.multiprocessing.set_sharing_strategy(
-        os.environ.get("PYTORCH_SHARING_STRATEGY", "file_system")
-    )
-except Exception:
-    pass
+from .utils import _get_run_logger, coerce_config_scalars, save_checkpoint
 
 
-
-    
-#? -------------------------------------------------------------- #
-#?                          Trainer Class                         #
-#? -------------------------------------------------------------- #
-        
-class Trainer():
+class BaseTrainer():
     def __init__(self,
                  model          : Optional[torch.nn.Module]             = None,
                  data_manager   : Optional[DataManager]                 = None,
@@ -57,7 +36,6 @@ class Trainer():
                  loss           : Optional[str]                         = "CrossEntropyLoss",
                  loss_params    : Optional[Dict[str, Any]]             = None,
              ):
-        
         self.model          : Optional[torch.nn.Module]                 = model
         self.data_manager   : Optional[DataManager]                     = data_manager
         self.num_epochs     : int                                       = num_epochs
@@ -76,18 +54,18 @@ class Trainer():
         # Cache originals so we can re-init per train() call
         self._scheduler_name = scheduler
         self._scheduler_params_template: Dict[str, Any] = deepcopy(scheduler_params) if isinstance(scheduler_params, dict) else {}
-        self.supervised = (loss != "InstanceDiscriminationLoss")
 
         # initialize file logger (file-only, no console output)
         self.logger, self.log_file_path = _get_run_logger(self.log_file)
 
         if model is None:
+            if data_manager is None:
+                raise ValueError("Data manager not provided")
             self.model = models.alexnet(weights=None, num_classes=self.data_manager.num_classes, dropout=self.dropout_rate)
-        
+
         #? ------------ Initialize Device ------------ #
         self.device = torch.device("cuda" if (self.use_cuda and torch.cuda.is_available()) else "cpu")
         self.logger.info(f"Using device: {self.device}")
-        # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
         if self.device.type == 'cuda':
             torch.backends.cudnn.benchmark = True
             torch.backends.cuda.matmul.allow_tf32 = True
@@ -96,155 +74,55 @@ class Trainer():
                 torch.set_float32_matmul_precision('high')
             except Exception:
                 pass
-        
+
         # Build optimizer
         self.optimizer = self._build_optimizer(optimizer, optimizer_params)
-        
-        # Build scheduler (will be initialized at the start of train())
-        # self.scheduler = self._build_scheduler(self._scheduler_name, self._scheduler_params_template)
-        
+
         # Build loss
         self.loss = self._build_loss(loss, loss_params)
-        
-        if data_manager is None:
-            raise ValueError("Data manager not provided")
-        
-        self.model.to(self.device)
-        
-        self.train_losses = []
-        self.val_losses   = []
-        
-        self.train_accuracies = []
-        self.val_accuracies   = []
-        
+
         if self.data_manager is None:
             raise ValueError("Data manager not provided")
-        
+
+        self.model.to(self.device)
+
+        self.train_losses = []
+        self.val_losses   = []
+
+        self.train_accuracies = []
+        self.val_accuracies   = []
+
         self.train_loader = self.data_manager.train_loader
         self.val_loader   = self.data_manager.val_loader
         self.test_loader  = self.data_manager.test_loader
-        
+
         # Initialize GradScaler for mixed precision training
         self.scaler = GradScaler(enabled=self.device.type == 'cuda')
-        
-    #? ------------------------ Train Epoch -------------------------
-        
-    def train_epoch(self, epoch):
-        self.model.train()
-        
-        total_loss    = 0.0
-        total_correct = 0
-        total_samples = 0
-        
-        progress_bar = tqdm(self.train_loader, desc=f"Training Epoch {epoch+1}", leave=False)
-            
-        for batch_idx, (images, labels) in enumerate(progress_bar):
-            images = images.to(self.device, non_blocking=True)
-            if self.device.type == 'cuda':
-                images = images.contiguous(memory_format=torch.channels_last)
-            labels = labels.to(self.device, non_blocking=True)
-            
-            # Mixed precision training
-            with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
-                outputs = self.model(images)
-                loss = self.loss(outputs, labels)
-            
-            # Backward pass with gradient scaling
-            self.optimizer.zero_grad()
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            
-            # Update metrics
-            total_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            total_correct += (labels == predicted).sum().item()
-           
-            total_samples += labels.size(0)
-            
-            # Update progress bar
-            progress_bar.set_postfix({
-                "Loss":  f'{loss.item():.4f}',
-                "Acc":   f'{100 * total_correct / total_samples:.2f}%'
-            })
-        
-        epoch_loss = total_loss / len(self.train_loader)
-        epoch_acc  = 100 * total_correct / total_samples
-            
-        return epoch_loss, epoch_acc
-    
-    #? ------------------------ Validate Epoch -------------------------
-    
-    def evaluate(self, loader: DataLoader, epoch: int, mode: str):
-        self.model.eval()
-        
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
-        
-        if mode == "Test":
-            desc = f"Testing"
-        else:
-        desc = f"Validating {mode} epoch {epoch+1}"
-        
-        with torch.no_grad():
-            progress_bar = tqdm(loader, desc=desc, leave=False)
-            
-            for batch_idx, (images, labels) in enumerate(progress_bar):
-                images = images.to(self.device, non_blocking=True)
-                if self.device.type == 'cuda':
-                    images = images.contiguous(memory_format=torch.channels_last)
-                labels = labels.to(self.device, non_blocking=True)
-                
-                # Mixed precision inference
-                with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
-                    outputs = self.model(images)
-                    loss = self.loss(outputs, labels)
-                
-                # Update metrics
-                total_loss += loss.item()
-                _, predicted = torch.max(outputs, 1)
-                total_samples += labels.size(0)
-                total_correct += (labels == predicted).sum().item()
-                
-                # Update progress bar
-                progress_bar.set_postfix({
-                    "Loss":  f'{loss.item():.4f}',
-                    "Acc":   f'{100 * total_correct / total_samples:.2f}%'
-                })
-                
-        epoch_loss = total_loss / len(loader)
-        epoch_acc  = 100 * total_correct / total_samples
-        
-        return epoch_loss, epoch_acc
-    
-    #? ------------------------ Train -------------------------
-    
+
+    # Orchestration remains common across trainers
     def train(self):
         best_val_loss = float('inf')
         patience_counter = 0
-        
+
         # Reinitialize scheduler fresh for this training run
         self.scheduler = self._build_scheduler(self._scheduler_name, self._scheduler_params_template)
-        
+
         save_every_n = self.save_every_n
-        
-        # If resuming, start from self.start_epoch
+
         if self.start_epoch > 0:
             self.logger.info(f"Resuming training from epoch {self.start_epoch}.")
         for epoch in range(self.start_epoch, self.num_epochs):
-            
             self.logger.info(f"Epoch {epoch+1}/{self.num_epochs}")
             self.logger.info("-" * 10)
-            
+
             train_loss, train_acc = self.train_epoch(epoch)
             val_loss, val_acc = self.evaluate(self.val_loader, epoch)
-            
+
             if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
                 self.scheduler.step(val_loss)
             else:
                 self.scheduler.step()
-            
+
             self.train_losses.append(train_loss)
             self.val_losses.append(val_loss)
             self.train_accuracies.append(train_acc)
@@ -253,43 +131,22 @@ class Trainer():
             self.logger.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
             self.logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
             self.logger.info(f"Learning Rate: {self.optimizer.param_groups[0]['lr']:.6f}")
-            
-            def save_checkpoint(epoch, loss, accuracy, name = None, msg = None):
-                self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                if name is None:
-                    name = f"checkpoint_epoch_{epoch+1}.pth"
-                ckpt_path = self.checkpoint_dir / name
-                torch.save({
-                    "epoch": epoch,
-                    "model_state_dict": self.model.state_dict(),
-                    "optimizer_state_dict": self.optimizer.state_dict(),
-                    "loss": loss,
-                    "accuracy": accuracy,
-                    "history": {
-                        "train_losses": self.train_losses,
-                        "val_losses": self.val_losses,
-                        "train_accuracies": self.train_accuracies,
-                        "val_accuracies": self.val_accuracies,
-                    }
-                }, ckpt_path.as_posix())
-                self.logger.info(f"{msg}: {ckpt_path}")
-            
+
             # Early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
-                
-                save_checkpoint(epoch, val_loss, val_acc, 
+
+                save_checkpoint(epoch, val_loss, val_acc,
                                 name = "best_model.pth",
                                 msg = f"Saved best model")
             else:
                 patience_counter += 1
                 self.logger.info(f"Patience: {patience_counter}/{self.patience}")
-                
-            
+
             # Milestone checkpoints
             if (epoch + 1) % save_every_n == 0:
-                save_checkpoint(epoch, val_loss, val_acc, 
+                save_checkpoint(epoch, val_loss, val_acc,
                                 name = f"checkpoint_epoch_{epoch+1}.pth",
                                 msg = f"Saved milestone checkpoint")
 
@@ -297,23 +154,26 @@ class Trainer():
             if patience_counter >= self.patience:
                 self.logger.info(f"Early stopping at epoch {epoch+1}")
                 break
-                
+
             self.logger.info("-" * 10)
-            
+
         return {
             "train_losses": self.train_losses,
             "val_losses": self.val_losses,
             "train_accuracies": self.train_accuracies,
             "val_accuracies": self.val_accuracies
         }
-        
-    #? ------------------------ Test -------------------------
-        
+
+    def train_epoch(self, epoch: int):
+        raise NotImplementedError
+
+    def evaluate(self, loader: DataLoader, epoch: int, mode: str = "Val"):
+        raise NotImplementedError
+
     def test(self):
         return self.evaluate(self.test_loader, self.num_epochs, "Test")
-    
+
     def load_model(self, model_path: str):
-        # Normalize to Path and fallback to configured checkpoint path
         path = Path(model_path)
         if not path.exists():
             default_best = self.checkpoint_dir / "best_model.pth"
@@ -330,20 +190,18 @@ class Trainer():
 
         checkpoint = torch.load(path.as_posix(), map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        # Set start_epoch to next epoch after the one stored in checkpoint
         try:
             saved_epoch = int(checkpoint.get('epoch', -1))
         except Exception:
             saved_epoch = -1
         self.start_epoch = max(0, saved_epoch + 1)
-        # Restore history if available so plots are not empty
         history = checkpoint.get('history')
         if isinstance(history, dict):
             self.train_losses = history.get('train_losses', [])
             self.val_losses = history.get('val_losses', [])
             self.train_accuracies = history.get('train_accuracies', [])
             self.val_accuracies = history.get('val_accuracies', [])
-            
+
         print(f"Model loaded from {path}")
         print(f"Best validation loss: {checkpoint['loss']:.4f}")
         print(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
@@ -351,15 +209,11 @@ class Trainer():
         self.logger.info(f"Best validation loss: {checkpoint['loss']:.4f}")
         self.logger.info(f"Best validation accuracy: {checkpoint['accuracy']:.2f}%")
         self.logger.info(f"start_epoch set to {self.start_epoch}")
-        
+
     def plot_training_history(self, show: bool = False, max_loss: Optional[float] = None, max_acc: Optional[int] = None, max_epoch: Optional[int] = None):
-        """Plot training and validation curves."""
-            
+        import matplotlib.pyplot as plt
         epochs = range(1, len(self.train_losses) + 1)
-        
         plt.figure(figsize=(12, 4))
-        
-        # Plot losses
         plt.subplot(1, 2, 1)
         plt.plot(epochs, self.train_losses, 'b-', label='Training Loss')
         plt.plot(epochs, self.val_losses, 'r-', label='Validation Loss')
@@ -368,30 +222,22 @@ class Trainer():
         plt.ylabel('Loss')
         plt.legend()
         plt.grid(True)
-        
         if max_loss is not None:
             plt.ylim(0, max_loss)
-        
         if max_epoch is not None:
             plt.xlim(0, max_epoch)
-            
-        # Plot accuracies
         plt.subplot(1, 2, 2)
         plt.plot(epochs, self.train_accuracies, 'b-', label='Train Acc')
         plt.plot(epochs, self.val_accuracies, 'r-', label='Val Acc')
-        
         if max_acc is not None:
             plt.ylim(0, max_acc)
-        
         if max_epoch is not None:
             plt.xlim(0, max_epoch)
-            
         plt.title('Accuracy (Top-1)')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy (%)')
         plt.legend()
         plt.grid(True)
-        
         plt.tight_layout()
         try:
             self.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -401,13 +247,12 @@ class Trainer():
         plt.savefig(out_path, dpi=300, bbox_inches='tight')
         if show:
             plt.show()
-        # Also save CSV with history for programmatic access
         try:
             import csv
             csv_path = self.artifacts_dir / 'training_history.csv'
             with open(csv_path, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(["epoch", "train_loss", "val_loss", "train_acc", "val_acc"]) 
+                writer.writerow(["epoch", "train_loss", "val_loss", "train_acc", "val_acc"])
                 for i, e in enumerate(epochs):
                     tl = self.train_losses[i] if i < len(self.train_losses) else ''
                     vl = self.val_losses[i] if i < len(self.val_losses) else ''
@@ -416,65 +261,38 @@ class Trainer():
                     writer.writerow([int(e), float(tl), float(vl), float(ta), float(va)])
         except Exception:
             pass
-    
+
     #? ------------------------ Build Components -------------------------
-    
     def _build_optimizer(self, optimizer: str, optimizer_params: Optional[Dict[str, Any]]) -> optim.Optimizer:
-        """Create the optimizer from provided config or fallbacks."""
-        # Determine name and parameters
         optimizer_name = optimizer if isinstance(optimizer, str) else "AdamW"
         optimizer_params: Dict[str, Any] = dict(optimizer_params) if isinstance(optimizer_params, dict) else {"lr": 3e-4, "weight_decay": 1e-4}
-
-        # Coerce any string scalars to proper numeric/bool types
-        optimizer_params = _coerce_config_scalars(optimizer_params)
-
-        # Normalize common aliases
+        optimizer_params = coerce_config_scalars(optimizer_params)
         if "learning_rate" in optimizer_params and "lr" not in optimizer_params:
             optimizer_params["lr"] = optimizer_params.pop("learning_rate")
-
-        # Build optimizer class
         optimizer_class = getattr(optim, optimizer_name, None)
         if optimizer_class is None:
             raise ValueError(f"Unsupported optimizer: {optimizer_name}")
         return optimizer_class(self.model.parameters(), **optimizer_params)
 
     def _build_scheduler(self, scheduler: str, scheduler_params: Optional[Dict[str, Any]]) -> optim.lr_scheduler:
-        """Create the LR scheduler from provided config or fallbacks."""
         scheduler_name = scheduler if isinstance(scheduler, str) else "ReduceLROnPlateau"
         scheduler_params: Dict[str, Any] = dict(scheduler_params) if isinstance(scheduler_params, dict) else {}
-
-        # Coerce any string scalars to proper numeric/bool types
-        scheduler_params = _coerce_config_scalars(scheduler_params)
-
-        # Minimal sensible defaults
+        scheduler_params = coerce_config_scalars(scheduler_params)
         if scheduler_name == "ReduceLROnPlateau" and "mode" not in scheduler_params:
             scheduler_params["mode"] = "min"
-
-        # Instantiate scheduler
         scheduler_class = getattr(optim.lr_scheduler, scheduler_name, None)
         if scheduler_class is None:
             raise ValueError(f"Unsupported scheduler: {scheduler_name}")
-
-        # Persist the chosen name for step logic
         self.scheduler = scheduler_name
         return scheduler_class(self.optimizer, **scheduler_params)
 
     def _build_loss(self, loss: str, loss_params: Optional[Dict[str, Any]]) -> torch.nn.Module:
-        """Create the loss function from provided config or fallbacks."""
         loss_name = loss if isinstance(loss, str) else "CrossEntropyLoss"
         loss_params: Dict[str, Any] = dict(loss_params) if isinstance(loss_params, dict) else {}
-        # Coerce any string scalars to proper numeric/bool types
-        loss_params = _coerce_config_scalars(loss_params)
-
-        if loss_name == "InstanceDiscriminationLoss":
-            # TODO: ------------------------------------------------------------ #
-            # TODO:          Implement InstanceDiscriminationLoss
-            raise NotImplementedError("InstanceDiscriminationLoss is not implemented")
-            # return InstanceDiscriminationLoss(**loss_params)
-            # TODO: ------------------------------------------------------------ #
-        
-        # Build loss class
+        loss_params = coerce_config_scalars(loss_params)
         loss_class = getattr(nn, loss_name, None)
         if loss_class is None:
             raise ValueError(f"Unsupported loss: {loss_name}")
         return loss_class(**loss_params)
+
+

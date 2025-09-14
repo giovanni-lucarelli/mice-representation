@@ -111,4 +111,22 @@ def coerce_config_scalars(value: Any) -> Any:
             return value
     return value
 
-
+def save_checkpoint(epoch, loss, accuracy, name = None, msg = None):
+                self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                if name is None:
+                    name = f"checkpoint_epoch_{epoch+1}.pth"
+                ckpt_path = self.checkpoint_dir / name
+                torch.save({
+                    "epoch": epoch,
+                    "model_state_dict": self.model.state_dict(),
+                    "optimizer_state_dict": self.optimizer.state_dict(),
+                    "loss": loss,
+                    "accuracy": accuracy,
+                    "history": {
+                        "train_losses": self.train_losses,
+                        "val_losses": self.val_losses,
+                        "train_accuracies": self.train_accuracies,
+                        "val_accuracies": self.val_accuracies,
+                    }
+                }, ckpt_path.as_posix())
+                self.logger.info(f"{msg}: {ckpt_path}")

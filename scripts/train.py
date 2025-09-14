@@ -18,7 +18,8 @@ from src.config import (
 
 from src.pipeline.mouse_transforms import mouse_transform
 from src.datasets.DataManager import DataManager
-from src.model.trainer import Trainer
+from src.model.supervised_trainer import SupervisedTrainer
+from src.model.ir_trainer import InstanceDiscriminationTrainer
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,6 +79,7 @@ def main() -> None:
     data_cfg = resolved.experiment.data
     train_cfg = resolved.experiment.train
     loss_type = train_cfg.loss.name
+    self_supervised = bool(train_cfg.self_supervised)
     
     # Data manager
     dm = DataManager(
@@ -92,6 +94,7 @@ def main() -> None:
         use_cuda=resolved.experiment.device.use_cuda,
         train_transform=train_transform,
         eval_transform=eval_transform,
+        return_indices=self_supervised,
     )
     dm.setup()
 
@@ -105,7 +108,13 @@ def main() -> None:
     print(f"Scheduler params: {scheduler_params}")
     print(f"Loss params: {loss_params}")
 
-    model = Trainer(
+    # Choose trainer class based on boolean flag
+    if self_supervised:
+        TrainerClass = InstanceDiscriminationTrainer
+    else:
+        TrainerClass = SupervisedTrainer
+
+    model = TrainerClass(
         data_manager=dm,
         num_epochs=int(train_cfg.num_epochs),
         dropout_rate=float(train_cfg.dropout_rate),
