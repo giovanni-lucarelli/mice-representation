@@ -7,7 +7,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.utils.config import (
+from src.config import (
     load_and_resolve_configs,
     ensure_dirs,
     save_resolved_config,
@@ -18,7 +18,7 @@ from src.utils.config import (
 
 from src.pipeline.mouse_transforms import mouse_transform
 from src.datasets.DataManager import DataManager
-from src.AlexNet import AlexNet
+from src.model.trainer import Trainer
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         nargs="*",
         default=[],
-        help="Override keys, e.g. train.num_epochs=100 train.optimizer.learning_rate=1e-4",
+        help="Override keys, e.g. train.num_epochs=100 train.optimizer.params.lr=1e-4",
     )
     return p.parse_args()
 
@@ -75,8 +75,11 @@ def main() -> None:
         train = False,
     )
 
-    # Data manager
     data_cfg = resolved.experiment.data
+    train_cfg = resolved.experiment.train
+    loss_type = train_cfg.loss.name
+    
+    # Data manager
     dm = DataManager(
         data_path=str((resolved.root / Path(data_cfg.data_path)).resolve())
         if not Path(os.path.expanduser(str(data_cfg.data_path))).is_absolute()
@@ -93,20 +96,31 @@ def main() -> None:
     dm.setup()
 
     # Model
-    train_cfg = resolved.experiment.train
-    model = AlexNet(
+    # Extract optimizer/scheduler configs (normalized in config loader)
+    opt_params = dict(getattr(train_cfg.optimizer, "params", {}) or {})
+    scheduler_params = dict(getattr(train_cfg.scheduler, "params", {}) or {})
+    loss_params = dict(getattr(train_cfg.loss, "params", {}) or {})
+
+    print(f"Optimizer params: {opt_params}")
+    print(f"Scheduler params: {scheduler_params}")
+    print(f"Loss params: {loss_params}")
+
+    model = Trainer(
         data_manager=dm,
         num_epochs=int(train_cfg.num_epochs),
-        learning_rate=float(train_cfg.optimizer.learning_rate),
-        weight_decay=float(train_cfg.optimizer.weight_decay),
         dropout_rate=float(train_cfg.dropout_rate),
         patience=int(train_cfg.early_stopping_patience),
-        label_smoothing=float(train_cfg.label_smoothing),
         log_file=dirs["log_file"],
         checkpoint_dir=dirs["checkpoint_dir"],
         artifacts_dir=dirs["artifacts_dir"],
         use_cuda=resolved.experiment.device.use_cuda,
         save_every_n=int(train_cfg.save_every_n),
+        optimizer=train_cfg.optimizer.name,
+        optimizer_params=opt_params,
+        scheduler=train_cfg.scheduler.name,
+        scheduler_params=scheduler_params,
+        loss=train_cfg.loss.name,
+        loss_params=loss_params,
     )
 
     history = model.train()

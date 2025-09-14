@@ -7,16 +7,38 @@ data:
 
 train:
   num_epochs: 100
-  optimizer:
-    name: AdamW
-    learning_rate: 3e-4
-    weight_decay: 1e-4
   dropout_rate: 0.3
   early_stopping_patience: 15
-  label_smoothing: 0.1
+
+  optimizer:
+    name: AdamW
+    params:
+      lr: 3e-4
+      weight_decay: 1e-4
+
+  # scheduler:
+  #   name: ReduceLROnPlateau
+  #   params:
+  #     factor: 0.5
+  #     patience: 5
+  #     mode: min
+
+  scheduler:
+    name: MultiStepLR
+    params:
+      milestones: [25, 50, 75]
+      gamma: 0.2
+
+  loss:
+    name: InstanceDiscriminationLoss
+    params:
+      m: 4096
+      gamma: 0.5
+      tau: 0.07
+      embedding_dim: 128
+      model_output_dim: 4096
   
   checkpoint_sub_dir: self-supervised_no-diet
-  loss_type: InstanceDiscriminationLoss
 
   save_every_n: 10
 

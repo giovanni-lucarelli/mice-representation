@@ -8,17 +8,20 @@ from torchvision import models
 import logging
 from datetime import datetime
 import matplotlib.pyplot as plt
-
 from tqdm import tqdm
-from typing import Optional
+from typing import Optional, Dict, Any
 import os
 from pathlib import Path
 import sys
+from copy import deepcopy
 
 # append src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from .datasets.DataManager import DataManager
+from ..datasets.DataManager import DataManager
+from .utils import _get_run_logger
+from ..config import seed_everything, TrainSchedulerConfig
+from .utils import coerce_config_scalars as _coerce_config_scalars
 
 # Reduce /dev/shm usage to avoid DataLoader bus errors
 try:
@@ -28,90 +31,80 @@ try:
 except Exception:
     pass
 
-def _get_run_logger(log_file: Path):
-    """Create and return a file-only logger writing to the provided file path."""
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_path = log_file
-    run_id = log_file.parent.name
-    logger = logging.getLogger(f"mice_repr.train.{run_id}")
-    logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        file_handler = logging.FileHandler(log_path.as_posix())
-        file_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        logger.propagate = False
-    return logger, log_path
+
 
     
 #? -------------------------------------------------------------- #
-#?                        Model - AlexNet                         #
+#?                          Trainer Class                         #
 #? -------------------------------------------------------------- #
         
-class AlexNet():
+class Trainer():
     def __init__(self,
-                 model       : Optional[torch.nn.Module]                = None,
-                 device      : Optional[torch.device]                   = None,
-                 criterion   : Optional[torch.nn.Module]                = None,
-                 data_manager: Optional[DataManager]                    = None,
-                 optimizer   : Optional[torch.optim.Optimizer] | str    = "AdamW",
-                 num_epochs  : int                                      = 100,
-                 learning_rate: float                                   = 3e-4,
-                 weight_decay: float                                    = 1e-4,
-                 dropout_rate: float                                    = 0.3,
-                 patience    : int                                      = 15,
-                 label_smoothing: float                                 = 0.1,
-                 log_file: Optional[Path]                               = None,
-                 checkpoint_dir: Optional[Path]                         = None,
-                 artifacts_dir: Optional[Path]                          = None,
-                 use_cuda: bool                                         = True,
-                 save_every_n: int                                      = 10,
+                 model          : Optional[torch.nn.Module]             = None,
+                 data_manager   : Optional[DataManager]                 = None,
+                 num_epochs     : int                                   = 100,
+                 dropout_rate   : float                                 = 0.3,
+                 patience       : int                                   = 15,
+                 log_file       : Optional[Path]                        = None,
+                 checkpoint_dir : Optional[Path]                        = None,
+                 artifacts_dir  : Optional[Path]                        = None,
+                 use_cuda       : bool                                  = True,
+                 save_every_n   : int                                   = 10,
+                 optimizer      : Optional[optim.Optimizer] | str       = "AdamW",
+                 optimizer_params: Optional[Dict[str, Any]]             = None,
+                 scheduler      : str  = "MultiStepLR",
+                 scheduler_params: Optional[dict]                       = None,
+                 loss           : Optional[str]                         = "CrossEntropyLoss",
+                 loss_params    : Optional[Dict[str, Any]]             = None,
              ):
         
-        self.model        : Optional[torch.nn.Module]       = model
-        self.device       : Optional[torch.device]          = device
-        self.criterion    : Optional[torch.nn.Module]       = criterion
-        self.data_manager : Optional[DataManager]           = data_manager
-        self.num_epochs   : int                             = num_epochs
-        self.learning_rate: float                           = learning_rate
-        self.weight_decay : float                           = weight_decay
-        self.dropout_rate : float                           = dropout_rate
-        self.patience     : int                             = patience
-        self.save_every_n : int                             = save_every_n
-        self.start_epoch  : int                             = 0
-        self.use_cuda     : bool                            = use_cuda
-        self.checkpoint_dir: Path                           = (checkpoint_dir or Path(os.environ.get("CHECKPOINT_DIR_OVERRIDE", "checkpoints")).resolve())
-        self.log_file: Path                                 = (log_file or (self.checkpoint_dir / "train.log")).resolve()
-        self.artifacts_dir: Path                            = (artifacts_dir or (self.checkpoint_dir / "artifacts")).resolve()
-        
+        self.model          : Optional[torch.nn.Module]                 = model
+        self.data_manager   : Optional[DataManager]                     = data_manager
+        self.num_epochs     : int                                       = num_epochs
+        self.dropout_rate   : float                                     = dropout_rate
+        self.patience       : int                                       = patience
+        self.save_every_n   : int                                       = save_every_n
+        self.start_epoch    : int                                       = 0
+        self.use_cuda       : bool                                      = use_cuda
+        self.checkpoint_dir : Path                                      = (checkpoint_dir or Path(os.environ.get("CHECKPOINT_DIR_OVERRIDE", "checkpoints")).resolve())
+        self.log_file       : Path                                      = (log_file or (self.checkpoint_dir / "train.log")).resolve()
+        self.artifacts_dir  : Path                                      = (artifacts_dir or (self.checkpoint_dir / "artifacts")).resolve()
+        self.scheduler      : str                                       = scheduler
+        self.optimizer      : str                                       = optimizer
+        self.loss           : Optional[str]                             = loss
+        self.loss_params    : Optional[Dict[str, Any]]                  = loss_params
+        # Cache originals so we can re-init per train() call
+        self._scheduler_name = scheduler
+        self._scheduler_params_template: Dict[str, Any] = deepcopy(scheduler_params) if isinstance(scheduler_params, dict) else {}
+        self.supervised = (loss != "InstanceDiscriminationLoss")
+
         # initialize file logger (file-only, no console output)
         self.logger, self.log_file_path = _get_run_logger(self.log_file)
 
         if model is None:
             self.model = models.alexnet(weights=None, num_classes=self.data_manager.num_classes, dropout=self.dropout_rate)
         
-        if device is None:
-            self.device = torch.device("cuda" if (self.use_cuda and torch.cuda.is_available()) else "cpu")
-            self.logger.info(f"Using device: {self.device}")
-            # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
-            if self.device.type == 'cuda':
-                torch.backends.cudnn.benchmark = True
-                torch.backends.cuda.matmul.allow_tf32 = True
-                torch.backends.cudnn.allow_tf32 = True
-                try:
-                    torch.set_float32_matmul_precision('high')
-                except Exception:
-                    pass
-
-        if criterion is None:
-            self.criterion = CrossEntropyLoss(label_smoothing=label_smoothing)
+        #? ------------ Initialize Device ------------ #
+        self.device = torch.device("cuda" if (self.use_cuda and torch.cuda.is_available()) else "cpu")
+        self.logger.info(f"Using device: {self.device}")
+        # Performance toggles for CUDA GPUs (RTX 40xx supports TF32)
+        if self.device.type == 'cuda':
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            try:
+                torch.set_float32_matmul_precision('high')
+            except Exception:
+                pass
         
-        self.optimizer = optim.AdamW(
-            self.model.parameters(),
-            lr=self.learning_rate,
-            weight_decay=self.weight_decay
-        )
+        # Build optimizer
+        self.optimizer = self._build_optimizer(optimizer, optimizer_params)
+        
+        # Build scheduler (will be initialized at the start of train())
+        # self.scheduler = self._build_scheduler(self._scheduler_name, self._scheduler_params_template)
+        
+        # Build loss
+        self.loss = self._build_loss(loss, loss_params)
         
         if data_manager is None:
             raise ValueError("Data manager not provided")
@@ -154,7 +147,7 @@ class AlexNet():
             # Mixed precision training
             with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
                 outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                loss = self.loss(outputs, labels)
             
             # Backward pass with gradient scaling
             self.optimizer.zero_grad()
@@ -182,15 +175,20 @@ class AlexNet():
     
     #? ------------------------ Validate Epoch -------------------------
     
-    def evaluate(self, loader: DataLoader):
+    def evaluate(self, loader: DataLoader, epoch: int, mode: str):
         self.model.eval()
         
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
         
+        if mode == "Test":
+            desc = f"Testing"
+        else:
+        desc = f"Validating {mode} epoch {epoch+1}"
+        
         with torch.no_grad():
-            progress_bar = tqdm(loader, desc="Validating", leave=False)
+            progress_bar = tqdm(loader, desc=desc, leave=False)
             
             for batch_idx, (images, labels) in enumerate(progress_bar):
                 images = images.to(self.device, non_blocking=True)
@@ -201,7 +199,7 @@ class AlexNet():
                 # Mixed precision inference
                 with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
                     outputs = self.model(images)
-                    loss = self.criterion(outputs, labels)
+                    loss = self.loss(outputs, labels)
                 
                 # Update metrics
                 total_loss += loss.item()
@@ -223,16 +221,11 @@ class AlexNet():
     #? ------------------------ Train -------------------------
     
     def train(self):
-        
         best_val_loss = float('inf')
         patience_counter = 0
         
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, 
-            mode='min', 
-            factor=0.5, 
-            patience=5
-        )
+        # Reinitialize scheduler fresh for this training run
+        self.scheduler = self._build_scheduler(self._scheduler_name, self._scheduler_params_template)
         
         save_every_n = self.save_every_n
         
@@ -245,9 +238,12 @@ class AlexNet():
             self.logger.info("-" * 10)
             
             train_loss, train_acc = self.train_epoch(epoch)
-            val_loss, val_acc = self.evaluate(self.val_loader)
+            val_loss, val_acc = self.evaluate(self.val_loader, epoch)
             
-            scheduler.step(val_loss)
+            if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                self.scheduler.step(val_loss)
+            else:
+                self.scheduler.step()
             
             self.train_losses.append(train_loss)
             self.val_losses.append(val_loss)
@@ -314,7 +310,7 @@ class AlexNet():
     #? ------------------------ Test -------------------------
         
     def test(self):
-        return self.evaluate(self.test_loader)
+        return self.evaluate(self.test_loader, self.num_epochs, "Test")
     
     def load_model(self, model_path: str):
         # Normalize to Path and fallback to configured checkpoint path
@@ -421,3 +417,64 @@ class AlexNet():
         except Exception:
             pass
     
+    #? ------------------------ Build Components -------------------------
+    
+    def _build_optimizer(self, optimizer: str, optimizer_params: Optional[Dict[str, Any]]) -> optim.Optimizer:
+        """Create the optimizer from provided config or fallbacks."""
+        # Determine name and parameters
+        optimizer_name = optimizer if isinstance(optimizer, str) else "AdamW"
+        optimizer_params: Dict[str, Any] = dict(optimizer_params) if isinstance(optimizer_params, dict) else {"lr": 3e-4, "weight_decay": 1e-4}
+
+        # Coerce any string scalars to proper numeric/bool types
+        optimizer_params = _coerce_config_scalars(optimizer_params)
+
+        # Normalize common aliases
+        if "learning_rate" in optimizer_params and "lr" not in optimizer_params:
+            optimizer_params["lr"] = optimizer_params.pop("learning_rate")
+
+        # Build optimizer class
+        optimizer_class = getattr(optim, optimizer_name, None)
+        if optimizer_class is None:
+            raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+        return optimizer_class(self.model.parameters(), **optimizer_params)
+
+    def _build_scheduler(self, scheduler: str, scheduler_params: Optional[Dict[str, Any]]) -> optim.lr_scheduler:
+        """Create the LR scheduler from provided config or fallbacks."""
+        scheduler_name = scheduler if isinstance(scheduler, str) else "ReduceLROnPlateau"
+        scheduler_params: Dict[str, Any] = dict(scheduler_params) if isinstance(scheduler_params, dict) else {}
+
+        # Coerce any string scalars to proper numeric/bool types
+        scheduler_params = _coerce_config_scalars(scheduler_params)
+
+        # Minimal sensible defaults
+        if scheduler_name == "ReduceLROnPlateau" and "mode" not in scheduler_params:
+            scheduler_params["mode"] = "min"
+
+        # Instantiate scheduler
+        scheduler_class = getattr(optim.lr_scheduler, scheduler_name, None)
+        if scheduler_class is None:
+            raise ValueError(f"Unsupported scheduler: {scheduler_name}")
+
+        # Persist the chosen name for step logic
+        self.scheduler = scheduler_name
+        return scheduler_class(self.optimizer, **scheduler_params)
+
+    def _build_loss(self, loss: str, loss_params: Optional[Dict[str, Any]]) -> torch.nn.Module:
+        """Create the loss function from provided config or fallbacks."""
+        loss_name = loss if isinstance(loss, str) else "CrossEntropyLoss"
+        loss_params: Dict[str, Any] = dict(loss_params) if isinstance(loss_params, dict) else {}
+        # Coerce any string scalars to proper numeric/bool types
+        loss_params = _coerce_config_scalars(loss_params)
+
+        if loss_name == "InstanceDiscriminationLoss":
+            # TODO: ------------------------------------------------------------ #
+            # TODO:          Implement InstanceDiscriminationLoss
+            raise NotImplementedError("InstanceDiscriminationLoss is not implemented")
+            # return InstanceDiscriminationLoss(**loss_params)
+            # TODO: ------------------------------------------------------------ #
+        
+        # Build loss class
+        loss_class = getattr(nn, loss_name, None)
+        if loss_class is None:
+            raise ValueError(f"Unsupported loss: {loss_name}")
+        return loss_class(**loss_params)

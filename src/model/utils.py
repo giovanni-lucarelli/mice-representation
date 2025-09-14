@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any, Dict
+import logging
 
 import yaml
 
@@ -62,4 +63,52 @@ def _dict_to_dataclass(data: Dict[str, Any], cls):
             except Exception:
                 kwargs[field_name] = val
     return cls(**kwargs)
+
+
+def _get_run_logger(log_file: Path):
+    """Create and return a file-only logger writing to the provided file path."""
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_path = log_file
+    run_id = log_file.parent.name
+    logger = logging.getLogger(f"mice_repr.train.{run_id}")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        file_handler = logging.FileHandler(log_path.as_posix())
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.propagate = False
+    return logger, log_path
+
+
+# Common scalar coercion for configs
+def coerce_config_scalars(value: Any) -> Any:
+    """Recursively coerce scalar-like strings to proper Python types.
+    - "true"/"false" -> bool
+    - integers -> int
+    - floats, scientific notation -> float
+    Works for nested dicts/lists/tuples.
+    """
+    if isinstance(value, dict):
+        return {k: coerce_config_scalars(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        coerced = [coerce_config_scalars(v) for v in value]
+        return tuple(coerced) if isinstance(value, tuple) else coerced
+    if isinstance(value, str):
+        s = value.strip()
+        lower = s.lower()
+        if lower in ("true", "false"):
+            return lower == "true"
+        try:
+            if s.isdigit() or (s.startswith("-") and s[1:].isdigit()):
+                return int(s)
+        except Exception:
+            pass
+        try:
+            return float(s)
+        except Exception:
+            return value
+    return value
+
 
