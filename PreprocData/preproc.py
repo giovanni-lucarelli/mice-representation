@@ -135,7 +135,7 @@ def preprocess_neuropixel(
     meta_rows: List[dict] = []
     counts_by_area: Dict[str, List[int]] = {}
 
-    # pass 1: find windows & collect counts
+    # pass 1: find the window for each (specimen, area) & collect counts
     for (s, a), idxs in groups.items():
         idxs_arr = np.asarray(idxs, dtype=int)
         gate = run_ok[idxs_arr] & np.isfinite(r_tu[:, idxs_arr]).any(axis=0)
@@ -144,7 +144,9 @@ def preprocess_neuropixel(
             continue
 
         med_t = np.nanmedian(r_tu[:, sel], axis=1)
+        print(f"Specimen {s} area {a}: {sel.size} units, median split-half consistency over time: min {np.nanmin(med_t):.3f}, max {np.nanmax(med_t):.3f}")
         run = longest_true_run(med_t >= config.window_median_thr)
+        print(f"  longest run above {config.window_median_thr}: {run}")
         if run is None:
             continue
 
