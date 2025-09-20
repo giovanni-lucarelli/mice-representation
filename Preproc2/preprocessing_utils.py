@@ -1,186 +1,162 @@
 import xarray as xr
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple, Dict, List
 from tqdm import tqdm
+import os
+from pathlib import Path
+import matplotlib.pyplot as plt
+import pandas as pd
 
 AREAS = ["VISp", "VISl", "VISal", "VISpm", "VISrl", "VISam"]
 
-def rho(ds: xr.Dataset, unit: int):
-    """return for each unit the array of split-half correlation, indexed by time bin"""
-    rho_ub = ds["splithalf_r_mean"].values
-    return rho_ub[:,unit]
+# ---------- helpers ----------
 
-def subset_S(ds: xr.Dataset, area: str) -> list:
+def _unit_mask(ds: xr.Dataset, specimen: int, area: str) -> np.ndarray:
+    """Boolean mask over the 'units' axis for (specimen, area)."""
+    return (ds.specimen_id.values == specimen) & (ds.visual_area.values == area)
+
+def subset_S(ds: xr.Dataset, area: str) -> List[int]:
+    """Get specimen IDs for a given visual area."""
+    return np.unique(ds.specimen_id.values[ds.visual_area.values == area]).tolist()
+
+# ---------- rho / median / time-window ----------
+
+def median(ds: xr.Dataset, specimen: int, area: str) -> np.ndarray:
     """
-    Get specimen IDs for a given visual area.
+    Compute median (over units) of split-half rho for (specimen, area).
+    Vectorized: slice once and median along unit axis.
+    Returns shape (time_bins,).
     """
-    area_units_mask = ds.visual_area.values == area
-    specimens_in_area = ds.specimen_id.values[area_units_mask]
-    return np.unique(specimens_in_area).tolist()
+    mask = _unit_mask(ds, specimen, area)
+    # splithalf_r_mean expected dims: (time_bins, units)
+    rho_ub = ds["splithalf_r_mean"].values  # ndarray
+    if not mask.any():
+        return np.array([])
+    # Take only the masked units and median across units (axis=1)
+    return np.median(rho_ub[:, mask], axis=1)
 
-# 1. calcolo la maschera che restituisce tutte le unità appartenenti ad (s,a)
-
-def subset_U(ds: xr.Dataset, specimen: int, area: str) -> np.ndarray:
+def _longest_true_run(x: np.ndarray) -> Optional[Tuple[int, int]]:
     """
-    Get unit indices for a given specimen and visual area.
+    Fast longest consecutive True run in a 1-D boolean array.
+    Returns (start, end) inclusive, or None.
     """
-    specimen_units = ds.specimen_id.values == specimen
-    area_units = ds.visual_area.values == area
-    
-    mask = specimen_units & area_units
-    
-    return np.where(mask)[0]
-
-# 2. calcolo la mediana di rho fra tute quelle unità
-
-def median(ds: xr.Dataset, specimen: int, area: str) -> np.array:
-
-    """compute the median (np.array indexed by time bin) of rho over all units in a given specimen and area"""
-
-    units = subset_U(ds, specimen, area)
-    rho_matrix = np.array([rho(ds, u) for u in units])
-    median_rho = np.median(rho_matrix, axis=0)
-    return median_rho
-
-# 3. calcolo gli estremi della time window definita dalla più lunga sequenza di bin consecutivi in cui la mediana è >= 0.3
-
-def time_window(ds: xr.Dataset, specimen: int, area: str, threshold: float = 0.3) -> Optional[tuple]:
-    """
-    Compute the time window defined by the longest sequence of consecutive bins where the median rho is >= threshold.
-    Returns a tuple (start_bin, end_bin) or None if no such window exists.
-    """
-    median_rho = median(ds, specimen, area)
-    above_threshold = median_rho >= threshold
-    
-    max_len = 0
-    current_len = 0
-    start_index = -1
-    best_start = -1
-    
-    for i, val in enumerate(above_threshold):
-        if val:
-            if current_len == 0:
-                start_index = i
-            current_len += 1
-            if current_len > max_len:
-                max_len = current_len
-                best_start = start_index
-        else:
-            current_len = 0
-    
-    if max_len == 0:
+    if x.size == 0 or not x.any():
         return None
-    
-    return (best_start, best_start + max_len - 1)
+    # Add sentinels to detect edges
+    dx = np.diff(np.concatenate(([0], x.view(np.int8), [0])))
+    starts = np.where(dx == 1)[0]
+    ends   = np.where(dx == -1)[0] - 1
+    lengths = ends - starts + 1
+    i = np.argmax(lengths)
+    return int(starts[i]), int(ends[i])
 
-
-# calcolo per ogni unità la risposta media al trial in quella time window
-
-def mean_response_in_window(ds: xr.Dataset, unit: int, start_bin: int, end_bin: int) -> np.ndarray:
+def time_window(ds: xr.Dataset, specimen: int, area: str, threshold: float = 0.3) -> Optional[Tuple[int, int]]:
     """
-    Compute the response of a unit within a specified time window for each paired trial and frame_id.
-    Returns a 2D numpy array of shape (T, F) where T is the number of trials and F is the number of frame_ids.
+    Longest consecutive bins where median rho >= threshold.
     """
+    med = median(ds, specimen, area)
+    if med.size == 0:
+        return None
+    return _longest_true_run(med >= threshold)
 
-    da = ds["neural_data"].isel({"units": unit, "time_relative_to_stimulus_onset": slice(start_bin, end_bin + 1)}).mean("time_relative_to_stimulus_onset")
-    da = da.transpose("trials", "frame_id")
-    return da.astype("float32").values  # (T, F)
-
+# ---------- responses ----------
 
 def pipeline(ds: xr.Dataset, specimen: int, area: str, threshold: float = 0.3) -> Optional[np.ndarray]:
     """
-    Complete pipeline to compute the trial mean responses for all units in a given specimen and area
-    within the time window defined by the longest sequence of consecutive bins where the median rho is >= threshold.
-    Returns a 3D numpy array of shape (U, T, F) where U is the number of units, T is the number of trials, and F is the number of frame_ids.
-    Returns None if no valid time window exists.
+    Returns responses with shape (T, F, U) for all units in (specimen, area),
+    averaged over the reliable time window. Fully vectorized over units.
     """
-    time_win = time_window(ds, specimen, area, threshold)
-    if time_win is None:
+    tw = time_window(ds, specimen, area, threshold)
+    if tw is None:
         return None
-    
-    start_bin, end_bin = time_win
-    units = subset_U(ds, specimen, area)
+    start_bin, end_bin = tw
 
-    responses = np.array([mean_response_in_window(ds, u, start_bin, end_bin) for u in units])
-
-    return responses  # (U, T, F)
-
-
-def subset_S75pc(ds: xr.Dataset, area: str) -> list:
-    """
-    Get specimen IDs for a given visual area that have at least 75 percentile of the number of units in that area.
-    """
-    specimens = subset_S(ds, area)
-    unit_counts = [len(subset_U(ds, specimen, area)) for specimen in specimens]
-    threshold = np.percentile(unit_counts, 75)
-    print(f"75th percentile of unit counts in {area}: {threshold}")
-    selected_specimens = [specimen for specimen, count in zip(specimens, unit_counts) if count >= threshold]
-    return selected_specimens
-
-
-def pipeline_all(ds: xr.Dataset, area: str, threshold: float = 0.3) -> Optional[np.ndarray]:
-    """
-    use the above pipeline to compute the responses for all specimens in a given area then subselect those specimens with at least 75 percentile of units
-    concatenate all the results along the unit dimension and return a single array of shape (U_total, T, F)
-    Returns None if no valid specimens exist.
-    """
-
-    selected_specimens = subset_S75pc(ds, area)
-    if not selected_specimens:
+    mask = _unit_mask(ds, specimen, area)
+    if not mask.any():
         return None
-    
-    all_responses = []
-    for specimen in selected_specimens:
-        responses = pipeline(ds, specimen, area, threshold)
-        if responses is not None:
-            all_responses.append(responses)
-    
-    if not all_responses:
-        return None
-    
-    concatenated_responses = np.concatenate(all_responses, axis=0)  # concatenate along the unit dimension
 
-    # print the number of unique units in concatenated_responses
-    unique_units = set(concatenated_responses[:, 0, 0])  # assuming unit IDs are in the first dimension
-    print(f"Number of unique units in concatenated_responses: {len(unique_units)}")
+    # Slice all units + time window once, reduce over time, then order dims
+    da = (
+        ds["neural_data"]
+        .isel(units=mask, time_relative_to_stimulus_onset=slice(start_bin, end_bin + 1))
+        .mean("time_relative_to_stimulus_onset")
+        .transpose("trials", "frame_id", "units")
+        .astype("float32")
+    )
+    return da.values  # (T, F, U)
 
-    return concatenated_responses  # (U_total, T, F)
-
-
-def pipeline_all_correct_order(ds: xr.Dataset, area: str, threshold: float = 0.3) -> Optional[np.ndarray]:
+def pipeline_all_specimens(ds: xr.Dataset, area: str, threshold: float = 0.3) -> Optional[np.ndarray]:
     """
-    first use the pipeline above to get all responses for the pair (specimen, area), then compute the new numeber of resulting units for each specimen, then subselect those specimens with at least 75 percentile of units.
+    Run pipeline for each specimen in area, then select specimens with
+    unit_count >= 75th percentile. Save only the selected ones, and return
+    concatenated responses across them along the unit axis.
     """
+    data_dir = "data"
+    os.makedirs(data_dir, exist_ok=True)
 
-    all_responses = {}
+    all_responses: Dict[int, np.ndarray] = {}
 
-    # for all specimens in area
-    specimens = subset_S(ds, area)
-    for specimen in tqdm(specimens, desc="Processing specimens"):
-        # compute the avg response over the reliable time window (for each trial)
+    # Compute responses for each specimen
+    for specimen in tqdm(subset_S(ds, area), desc=f"Processing specimens in {area}"):
         resp = pipeline(ds, specimen, area, threshold)
         if resp is not None:
-            all_responses[specimen] = (resp, resp.shape[0])  # specimen: (U, T, F), number of units
+            all_responses[specimen] = resp
 
     if not all_responses:
         return None
 
+    # Compute unit counts and 75th percentile
+    unit_counts = {specimen: resp.shape[2] for specimen, resp in all_responses.items()}
+    perc_thr = np.percentile(list(unit_counts.values()), 75)
 
-    # Compute the number of resulting units for each specimen
-    unit_counts = [count for _, count in all_responses.values()]
-    print(f"Unit counts per specimen: {unit_counts}")
-    if not unit_counts:
-        return None
-    
-    # Compute the 75th percentile threshold
-    percentile_threshold = np.percentile(unit_counts, 75)
-    print(f"75th percentile of unit counts in {area}: {percentile_threshold}")
-
-    # Subselect specimens with at least 75 percentile of units
-    selected_responses = [resp for resp, count in all_responses.values() if count >= percentile_threshold]
-
-    if not selected_responses:
+    # Filter specimens
+    selected = {s: r for s, r in all_responses.items() if unit_counts[s] >= perc_thr}
+    if not selected:
         return None
 
-    # Concatenate all the results along the unit dimension
-    return np.concatenate(selected_responses, axis=0)
+    # Save index + npy files ONLY for selected specimens
+    index_filepath = os.path.join(data_dir, f"{area}_index.csv")
+    with open(index_filepath, "w") as f:
+        f.write("area,specimen_id,unit_count,filename\n")
+        for specimen, resp in selected.items():
+            unit_count = unit_counts[specimen]
+            filename = f"{area}_{specimen}_responses.npy"
+            filepath = os.path.join(data_dir, filename)
+            np.save(filepath, resp)
+            f.write(f"{area},{specimen},{unit_count},{filepath}\n")
+
+    # Concatenate selected responses along unit axis (last axis)
+    return np.concatenate(list(selected.values()), axis=2)
+
+def get_summary_df(index_df):
+    rows = []
+    for area, sub in index_df.groupby("area"):
+        sids = sub['specimen_id'].astype(int).tolist()
+        units = sub['unit_count'].astype(int).tolist()
+        rows.append({
+            "Area": area,
+            "Number of Specimen IDs": len(sids),
+            "Total Units": int(sum(units)),
+            "Units per Specimen ID": units,
+        })
+    return pd.DataFrame(rows)
+
+def save_all_stimuli_as_png(dataset: xr.Dataset, output_folder: str | Path):
+    """
+    Saves all stimuli from the xarray Dataset as PNG files.
+
+    Args:
+        dataset: The xarray Dataset containing the 'stimuli' DataArray.
+        output_folder: The path to the folder where images will be saved.
+    """
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+    print(f"Saving stimuli to {output_path.resolve()}...")
+
+    # Iterate through each stimulus along the first dimension
+    for i, stimulus_image in enumerate(dataset['stimuli']):
+        file_path = output_path / f"stimulus_{i}.png"
+        # Use .values to get the numpy array from the DataArray and save it
+        plt.imsave(file_path, stimulus_image.values, cmap='gray')
+
+    print(f"Finished saving {len(dataset['stimuli'])} stimuli.")

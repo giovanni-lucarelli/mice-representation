@@ -20,7 +20,6 @@ def consistency_across_trials(index_df, sim_metric='RSA'):
     '''
     Consistency across trials within the same area and same specimen ID (each with itself).
     '''
-
     consistency_list = []
     
     for area in get_areas(index_df):
