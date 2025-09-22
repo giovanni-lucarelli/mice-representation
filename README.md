@@ -8,6 +8,21 @@ This project investigates the similarity between the visual representations of a
 - **Mouse-like preprocessed images**  
 - **Raw (non-preprocessed) images**
 
+## Quickstart (with uv)
+
+```bash
+# create the environment
+uv venv
+
+# activate the environment
+source .venv/bin/activate  # on Linux/MacOS
+# .venv\Scripts\Activate.ps1  # on Windows (PowerShell)
+
+# sync the environment
+uv sync
+
+```
+
 ## Environment Setup
 
 To create and activate a Python virtual environment with the required dependencies:
