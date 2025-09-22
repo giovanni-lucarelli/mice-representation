@@ -1,0 +1,5 @@
+area,specimen_id,unit_count,filename
+VISrl,718643567,67,data/VISrl_718643567_responses.npy
+VISrl,722882755,68,data/VISrl_722882755_responses.npy
+VISrl,744915204,60,data/VISrl_744915204_responses.npy
+VISrl,769360779,58,data/VISrl_769360779_responses.npy

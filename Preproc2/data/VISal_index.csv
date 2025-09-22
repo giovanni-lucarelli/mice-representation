@@ -1,0 +1,5 @@
+area,specimen_id,unit_count,filename
+VISal,726141251,71,data/VISal_726141251_responses.npy
+VISal,733457989,53,data/VISal_733457989_responses.npy
+VISal,735109609,80,data/VISal_735109609_responses.npy
+VISal,757329624,166,data/VISal_757329624_responses.npy

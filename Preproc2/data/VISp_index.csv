@@ -1,0 +1,10 @@
+area,specimen_id,unit_count,filename
+VISp,717038288,110,data/VISp_717038288_responses.npy
+VISp,719828690,102,data/VISp_719828690_responses.npy
+VISp,730760270,75,data/VISp_730760270_responses.npy
+VISp,733457989,85,data/VISp_733457989_responses.npy
+VISp,744915204,75,data/VISp_744915204_responses.npy
+VISp,745276236,84,data/VISp_745276236_responses.npy
+VISp,769360779,93,data/VISp_769360779_responses.npy
+VISp,772616823,75,data/VISp_772616823_responses.npy
+VISp,775876828,94,data/VISp_775876828_responses.npy
