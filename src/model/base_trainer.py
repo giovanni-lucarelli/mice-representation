@@ -137,18 +137,46 @@ class BaseTrainer():
                 best_val_loss = val_loss
                 patience_counter = 0
 
-                save_checkpoint(epoch, val_loss, val_acc,
-                                name = "best_model.pth",
-                                msg = f"Saved best model")
+                save_checkpoint(
+                    checkpoint_dir=self.checkpoint_dir,
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    epoch=epoch,
+                    loss=val_loss,
+                    accuracy=val_acc,
+                    history={
+                        "train_losses": self.train_losses,
+                        "val_losses": self.val_losses,
+                        "train_accuracies": self.train_accuracies,
+                        "val_accuracies": self.val_accuracies,
+                    },
+                    name="best_model.pth",
+                    logger=self.logger,
+                    msg=f"Saved best model",
+                )
             else:
                 patience_counter += 1
                 self.logger.info(f"Patience: {patience_counter}/{self.patience}")
 
             # Milestone checkpoints
             if (epoch + 1) % save_every_n == 0:
-                save_checkpoint(epoch, val_loss, val_acc,
-                                name = f"checkpoint_epoch_{epoch+1}.pth",
-                                msg = f"Saved milestone checkpoint")
+                save_checkpoint(
+                    checkpoint_dir=self.checkpoint_dir,
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    epoch=epoch,
+                    loss=val_loss,
+                    accuracy=val_acc,
+                    history={
+                        "train_losses": self.train_losses,
+                        "val_losses": self.val_losses,
+                        "train_accuracies": self.train_accuracies,
+                        "val_accuracies": self.val_accuracies,
+                    },
+                    name=f"checkpoint_epoch_{epoch+1}.pth",
+                    logger=self.logger,
+                    msg=f"Saved milestone checkpoint",
+                )
 
             # Stop if validation loss doesn't improve
             if patience_counter >= self.patience:

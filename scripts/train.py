@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Override keys, e.g. train.num_epochs=100 train.optimizer.params.lr=1e-4",
     )
+    p.add_argument(
+        "--exp-name",
+        type=str,
+        default="",
+        help="Optional suffix to append to the timestamped run directory name",
+    )
     return p.parse_args()
 
 
@@ -45,7 +51,8 @@ def main() -> None:
         overrides=args.__dict__.get("set", []),
     )
 
-    dirs = ensure_dirs(resolved)
+    # create timestamped run dirs, optionally suffixing with experiment name
+    dirs = ensure_dirs(resolved, suffix=args.exp_name.strip())
     flat["run_dir"] = dirs["run_dir"].as_posix()
     # persist resolved config next to run
     save_resolved_config(flat, dirs["run_dir"] / "resolved_config.yaml")
@@ -64,6 +71,8 @@ def main() -> None:
         apply_blur = resolved.experiment.diet.blur,
         apply_noise = resolved.experiment.diet.noise,
         train = True, # enables augmentation
+        apply_motion = False,
+        self_supervised = resolved.experiment.train.self_supervised,
     )
     
     eval_transform = mouse_transform(
@@ -74,6 +83,7 @@ def main() -> None:
         apply_blur = resolved.experiment.diet.blur,
         apply_noise = resolved.experiment.diet.noise,
         train = False,
+        apply_motion = False,
     )
 
     data_cfg = resolved.experiment.data

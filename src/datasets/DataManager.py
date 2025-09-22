@@ -55,7 +55,7 @@ class DataManager():
                  batch_size     : int                           = 512,
                  train_transform: Optional[transforms.Compose]  = None,
                  eval_transform : Optional[transforms.Compose]  = None,
-                 num_workers    : int                           = 8,
+                 num_workers    : int                           = 15,
                  train_split    : float                         = 0.7,
                  val_split      : float                         = 0.15,
                  split_seed     : int                           = 42,
@@ -122,12 +122,12 @@ class DataManager():
         self.test_dataset   : Optional[Subset]          = None
         
         # DataLoader attributes
-        self.train_loader   : Optional[DataLoader] = None
-        self.val_loader     : Optional[DataLoader] = None
-        self.test_loader    : Optional[DataLoader] = None
+        self.train_loader   : Optional[DataLoader]      = None
+        self.val_loader     : Optional[DataLoader]      = None
+        self.test_loader    : Optional[DataLoader]      = None
         
         # Dataset info
-        self.num_classes : Optional[int]    = None
+        self.num_classes    : Optional[int]             = None
         
     def load_data(self):
         """Create base MiniImageNet dataset and populate class metadata."""
@@ -137,11 +137,8 @@ class DataManager():
         print(f"Loading ImageFolder from {self.data_path}")
         # If the dataset path contains predefined splits (train/val or train/test),
         # use the train split as the base dataset to avoid treating split folders as classes.
-        split_train = self.data_path / "train"
-        split_val = self.data_path / "val"
-        split_test = self.data_path / "test"
-        if split_train.is_dir() and (split_val.is_dir() or split_test.is_dir()):
-            base_root = split_train
+        if self._has_predefined_splits():
+            base_root = self.data_path / "train"
         else:
             base_root = self.data_path
 
@@ -173,7 +170,8 @@ class DataManager():
         if self._base_dataset is None:
             raise ValueError("Dataset not loaded. Call load_data() first.")
 
-        if self._has_predefined_splits():
+        # if not self.return_indices and there are predefined splits, use them
+        if not self.return_indices and self._has_predefined_splits():
             print("Using predefined dataset splits (train/val/test)")
             self.train_dataset = self._make_split_dataset("train", self.train_transform)
             self.val_dataset = self._make_split_dataset("val", self.eval_transform)
@@ -183,6 +181,8 @@ class DataManager():
             print(f"Val dataset: {len(self.val_dataset)} samples")
             print(f"Test dataset: {len(self.test_dataset)} samples")
             return
+        
+        # if self.return_indices, create val/test as splits of the train set to keep class mapping consistent
 
         print(f"Splitting dataset into train, val, and test sets")
 
@@ -210,9 +210,7 @@ class DataManager():
         self.val_dataset = Subset(eval_full, val_idx)
         self.test_dataset = Subset(eval_full, test_idx)
 
-        print(f"Train dataset: {len(self.train_dataset)} samples")
-        print(f"Val dataset: {len(self.val_dataset)} samples")
-        print(f"Test dataset: {len(self.test_dataset)} samples")
+        print(f"Train dataset: {len(self.train_dataset)} samples\nVal dataset:   {len(self.val_dataset)} samples\nTest dataset:  {len(self.test_dataset)} samples")
         
     def _seed_worker(self, worker_id: int):
         """Ensure deterministic seeding for each DataLoader worker."""
@@ -234,7 +232,7 @@ class DataManager():
         pin = use_cuda
         effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
         persistent = False
-        prefetch = int(os.environ.get("PREFETCH_FACTOR", "2")) if effective_workers > 0 else None
+        prefetch = int(os.environ.get("PREFETCH_FACTOR", "4")) if effective_workers > 0 else None
 
         if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
             raise ValueError("Train, val, and test datasets not provided")

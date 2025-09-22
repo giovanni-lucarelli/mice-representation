@@ -327,40 +327,42 @@ def mouse_transform(
     affine_rng: torch.Generator | None = None,
     to_gray: bool = True,
     gray_keep_channels: bool = True,
-    resize: bool = True,
     train: bool = True,
-    apply_motion: bool = True,
+    apply_motion: bool = False,
     roll_deg: float = DEFAULT_ROLL_DEG,
     translate: Tuple[float, float] = DEFAULT_TRANSLATE,
+    self_supervised: bool = False,
 ) -> transforms.Compose:
     """
     Mouse-calibrated preprocessing:
     1) Gaussian blur + Gaussian noise (CSF-matched)
     """
     
-    ops = [ToTensor()]
-
-    if resize:
-        #ops.append(Resize(img_size))
-        if train:
-            ops.append(transforms.RandomResizedCrop(img_size))
-        else:
-            ops.append(transforms.Resize(img_size))
-            ops.append(transforms.CenterCrop(img_size))
+    ops = []
 
     if train:
-        ops.append(transforms.RandomHorizontalFlip(p=0.5))
+        if self_supervised:
+            ops.append(transforms.RandomResizedCrop(img_size, scale = (0.2, 1.0)))
+            ops.append(transforms.RandomGrayscale(p=0.2))
+            ops.append(transforms.ColorJitter(0.4, 0.4, 0.4, 0.4))
+        else:
+            ops.append(transforms.RandomResizedCrop(img_size))
+            
+        ops.append(transforms.RandomHorizontalFlip())
+    else:
+        ops.append(transforms.Resize(256))
+        ops.append(transforms.CenterCrop(img_size))
         
-    if apply_motion:
-        ops.append(RandomImgAffine(
-            degrees=(-roll_deg, roll_deg),
-            translate=translate,
-            decline=False,
-            generator=affine_rng,
-            shear=None,
-            scale=None,
-            fill=0.5,
-        ))
+    # if apply_motion:
+    #     ops.append(RandomImgAffine(
+    #         degrees=(-roll_deg, roll_deg),
+    #         translate=translate,
+    #         decline=False,
+    #         generator=affine_rng,
+    #         shear=None,
+    #         scale=None,
+    #         fill=0.5,
+    #     ))
 
     # Convert to grayscale before applying CSF blur+noise so both operate on luminance
     if to_gray:
@@ -374,5 +376,6 @@ def mouse_transform(
     if apply_noise:
         ops.append(GaussianNoise(std=noise_std, mono=True, decline=(noise_std is None or noise_std <= 0), generator=noise_rng))
         
+    ops.append(ToTensor())
     ops.append(Normalize(normalize))
     return transforms.Compose(ops)

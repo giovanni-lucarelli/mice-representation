@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import logging
 
 import yaml
+import torch
 
 
 def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,22 +112,39 @@ def coerce_config_scalars(value: Any) -> Any:
             return value
     return value
 
-def save_checkpoint(epoch, loss, accuracy, name = None, msg = None):
-                self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                if name is None:
-                    name = f"checkpoint_epoch_{epoch+1}.pth"
-                ckpt_path = self.checkpoint_dir / name
-                torch.save({
-                    "epoch": epoch,
-                    "model_state_dict": self.model.state_dict(),
-                    "optimizer_state_dict": self.optimizer.state_dict(),
-                    "loss": loss,
-                    "accuracy": accuracy,
-                    "history": {
-                        "train_losses": self.train_losses,
-                        "val_losses": self.val_losses,
-                        "train_accuracies": self.train_accuracies,
-                        "val_accuracies": self.val_accuracies,
-                    }
-                }, ckpt_path.as_posix())
-                self.logger.info(f"{msg}: {ckpt_path}")
+def save_checkpoint(
+    *,
+    checkpoint_dir: Path,
+    model,
+    optimizer,
+    epoch: int,
+    loss: float,
+    accuracy: float,
+    history: Dict[str, Any],
+    name: Optional[str] = None,
+    logger: Optional[logging.Logger] = None,
+    msg: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """Save a training checkpoint to the given directory.
+
+    Required keyword-only arguments for clarity. Returns the saved path.
+    """
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    if name is None:
+        name = f"checkpoint_epoch_{epoch+1}.pth"
+    ckpt_path = checkpoint_dir / name
+    payload: Dict[str, Any] = {
+        "epoch": int(epoch),
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "loss": float(loss),
+        "accuracy": float(accuracy),
+        "history": history,
+    }
+    if extra:
+        payload.update(extra)
+    torch.save(payload, ckpt_path.as_posix())
+    if logger is not None and msg is not None:
+        logger.info(f"{msg}: {ckpt_path}")
+    return ckpt_path

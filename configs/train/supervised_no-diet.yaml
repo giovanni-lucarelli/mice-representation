@@ -11,10 +11,17 @@ train:
   dropout_rate: 0.3
   early_stopping_patience: 15
 
+  # optimizer:
+  #   name: AdamW
+  #   params:
+  #     lr: 3e-4
+  #     weight_decay: 1e-4
+
   optimizer:
-    name: AdamW
+    name: SGD
     params:
-      lr: 3e-4
+      lr: 0.03
+      momentum: 0.9
       weight_decay: 1e-4
 
   # scheduler:

@@ -19,32 +19,38 @@ experiment:
     val_split: 0.15
     split_seed: 42
   train:
-    num_epochs: 150
-    optimizer:
-      name: AdamW
-      learning_rate: 3e-4
-      weight_decay: 1e-4
-      momentum: null
-    label_smoothing: 0.1
+    num_epochs: 100
     dropout_rate: 0.3
     early_stopping_patience: 15
+    self_supervised: false
+    checkpoint_sub_dir: supervised_diet
+    optimizer:
+      name: AdamW
+      params:
+        lr: 0.0003
+        weight_decay: 0.0001
     scheduler:
-      name: ReduceLROnPlateau
-      factor: 0.5
-      patience: 5
-      mode: min
-    checkpoint_sub_dir: supervised_no-diet
-    loss_type: CrossEntropyLoss
-    save_every_n: 15
+      name: MultiStepLR
+      params:
+        milestones:
+        - 25
+        - 50
+        - 75
+        gamma: 0.2
+    loss:
+      name: CrossEntropyLoss
+      params:
+        label_smoothing: 0.1
+    save_every_n: 10
   device:
-    device: auto
+    device: autopython_cmd=/home/spina/miniconda3/envs/sdwebui/bin/python venv_dir=- LD_PRELOAD= NO_TCMALLOC=1 bash webui.sh
     use_cuda: true
     seed: 42
   logging:
     level: INFO
   diet:
-    grayscale: false
-    blur: false
-    noise: false
-root: /home/spina/Desktop/units/DL/project/mice-representation
-run_dir: /home/spina/Desktop/units/DL/project/mice-representation/checkpoints/supervised_no-diet/20250911_190503
+    grayscale: true
+    blur: true
+    noise: true
+root: /home/spina/Desktop/units/DL/project
+run_dir: /home/spina/Desktop/units/DL/project/mice-representation/checkpoints/supervised_diet/20250914_060927

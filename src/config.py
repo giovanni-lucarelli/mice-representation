@@ -201,14 +201,16 @@ def load_and_resolve_configs(
     return resolved, flat
 
 
-def ensure_dirs(resolved: ResolvedConfig) -> Dict[str, Path]:
+def ensure_dirs(resolved: ResolvedConfig, suffix: str = "") -> Dict[str, Path]:
     from datetime import datetime
     root = resolved.root
     paths = resolved.project.paths
     base_run_dir = resolved.run_dir
     # timestamped subfolder per run
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = (base_run_dir / ts).resolve()
+    suffix_clean = suffix.strip()
+    name = f"{ts}_{suffix_clean}" if suffix_clean else ts
+    run_dir = (base_run_dir / name).resolve()
     # reflect change into resolved object
     resolved.run_dir = run_dir
 
