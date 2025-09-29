@@ -1,4 +1,3 @@
-import os
 from typing import Dict, List, Optional, Sequence, Union, Iterator, Tuple
 
 import numpy as np
@@ -9,57 +8,13 @@ import torchvision
 from torchvision import transforms
 
 import glob
-# # -----------------------------
-# # 0) Stream images from xarray
-# # -----------------------------
-# def stream_pil_images_from_ds(
-#     ds,
-#     var: Optional[str] = None,
-#     frame_ids: Optional[Sequence[int]] = None,
-# ) -> Iterator[Image.Image]:
-#     """
-#     Yield PIL Images one-by-one in the order of frame_ids (if given),
-#     without loading the entire image tensor into memory.
-#     Expects ds[var] with dims (..., frame_id, H, W[, 3]).
-#     """
-#     # pick the image variable
-#     if var is None:
-#         for name, da in ds.data_vars.items():
-#             if "frame_id" in da.dims and da.ndim in (3, 4):
-#                 var = name
-#                 break
-#         if var is None:
-#             raise ValueError("Could not infer image variable. Pass var='...'.")
-#     da = ds[var]
-
-#     # build order
-#     if frame_ids is None:
-#         frame_ids = list(da.coords["frame_id"].values.tolist())
-
-#     # stream per-frame (avoid da.values!)
-#     for fid in frame_ids:
-#         sl = da.sel(frame_id=fid)
-#         arr = sl.values  # a single image (H,W) or (H,W,3)
-#         if arr.ndim == 2:  # grayscale -> RGB
-#             arr = np.repeat(arr[..., None], 3, axis=2)
-#         if arr.dtype != np.uint8:
-#             mx = float(arr.max())
-#             if mx <= 1.0:
-#                 arr = (arr * 255.0).round().clip(0, 255).astype(np.uint8)
-#             else:
-#                 arr = arr.round().clip(0, 255).astype(np.uint8)
-#         yield Image.fromarray(arr, mode="RGB")
-
 from torch.utils.data import Dataset, DataLoader
-
 import os, re, glob
-import numpy as np
-from PIL import Image
+
 
 def _natural_key(s: str):
     # so 2.png comes before 10.png
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', os.path.basename(s))]
-
 
 class PNGFolderDataset(Dataset):
     def __init__(self, folder: str, filenames: list[str] | None = None, pattern: str = "*.png"):
@@ -151,18 +106,21 @@ class AlexNetFeatureExtractor(nn.Module):
 
         outputs: Dict[str, np.ndarray] = {}
         for key, tensor in self._hook_out.items():
-            if tensor.ndim == 4:  # conv: (N,C,H,W) -> GAP
-                vec = tensor.mean(dim=(2, 3))
-            else:                 # fc: (N,D)
+            if tensor.ndim == 4:
+                # NO POOLING: use all activations by flattening spatially
+                # (N, C, H, W) -> (N, C*H*W)
+                vec = tensor.flatten(1)
+            else:
+                # fc layers already (N, D)
                 vec = tensor
             outputs[key] = vec.float().cpu().numpy()
-        self._hook_out.clear()
 
-        # free batch tensors
+        self._hook_out.clear()
         del x
         if self.device.type == 'cuda':
             torch.cuda.empty_cache()
         return outputs
+
 
 
 def build_alexnet_design_matrices_with_dataloader(
@@ -241,96 +199,3 @@ def build_alexnet_design_matrices_with_dataloader(
             return paths
 
     return stores
-
-# # -------------------------------------------------------
-# # 2) Build design matrices in streaming, low-memory mode
-# # -------------------------------------------------------
-# def build_alexnet_design_matrices_streaming(
-#     ds,
-#     var: Optional[str] = None,
-#     frame_ids: Optional[Sequence[int]] = None,
-#     weights: Union[str, dict] = 'imagenet',   # 'random' | 'imagenet' | {'file': path}
-#     device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
-#     batch_size: int = 16,
-#     amp: bool = True,                         # mixed precision on GPU
-#     layers_keep: Optional[List[str]] = None,  # subset like ['conv3','conv4','fc6']
-#     save_dir: Optional[str] = None,           # if set, saves np.memmap per layer in this directory
-#     return_in_memory: bool = True,            # if False, return just file paths when save_dir is given
-# ) -> Union[Dict[str, np.ndarray], Dict[str, str]]:
-#     """
-#     Stream images from ds -> AlexNet -> write per-layer design matrices progressively.
-#     If save_dir is provided, allocate per-layer np.memmap arrays and fill them batch-wise.
-#     """
-
-#     # stream images lazily
-#     if frame_ids is None:
-#         frame_ids = ds['frame_id'].values.tolist()
-#     img_stream = stream_pil_images_from_ds(ds, var=var, frame_ids=frame_ids)
-
-#     # small helper to fetch next K images
-#     def take_k(it, k) -> List[Image.Image]:
-#         out = []
-#         try:
-#             for _ in range(k):
-#                 out.append(next(it))
-#         except StopIteration:
-#             pass
-#         return out
-
-#     # init extractor
-#     extractor = AlexNetFeatureExtractor(weights=weights, device=device)
-
-#     # 1) Warm-up on the first mini-batch to discover layer dims
-#     first_batch = take_k(img_stream, min(batch_size, max(1, len(frame_ids))))
-#     if not first_batch:
-#         raise ValueError("No images found in ds.")
-#     warm = extractor.forward_batch(first_batch, amp=amp)  # dict layer -> (n0 × D)
-#     if layers_keep is None:
-#         layers_keep = sorted(warm.keys())
-
-#     n0 = list(warm.values())[0].shape[0]
-#     F = len(frame_ids)
-
-#     # prepare output stores (memmap if save_dir, else RAM arrays)
-#     stores: Dict[str, np.ndarray] = {}
-#     paths: Dict[str, str] = {}
-#     os.makedirs(save_dir, exist_ok=True) if save_dir else None
-
-#     for layer in layers_keep:
-#         D = warm[layer].shape[1]
-#         if save_dir:
-#             path = os.path.join(save_dir, f"alexnet_{layer}.mmap")
-#             arr = np.memmap(path, mode='w+', dtype=np.float32, shape=(F, D))
-#             paths[layer] = path
-#         else:
-#             arr = np.empty((F, D), dtype=np.float32)
-#         # write warm batch
-#         arr[0:n0] = warm[layer]
-#         stores[layer] = arr
-
-#     # 2) Process remaining images in batches and write slices
-#     filled = n0
-#     while filled < F:
-#         batch = take_k(img_stream, min(batch_size, F - filled))
-#         out = extractor.forward_batch(batch, amp=amp)
-#         for layer in layers_keep:
-#             arr = stores[layer]
-#             arr[filled: filled + out[layer].shape[0]] = out[layer]
-#         filled += out[layer].shape[0]
-
-#     # 3) If using memmap and you want .npy, flush and optionally convert
-#     if save_dir:
-#         for layer, arr in stores.items():
-#             arr.flush()  # ensure data is on disk
-#         if return_in_memory:
-#             # map back into RAM arrays (could be big — set return_in_memory=False to avoid this)
-#             ret = {}
-#             for layer, path in paths.items():
-#                 mmap = np.memmap(path, mode='r', dtype=np.float32, shape=stores[layer].shape)
-#                 ret[layer] = np.array(mmap)  # copy into RAM
-#             return ret
-#         else:
-#             # return file paths (you can memory-map later when needed)
-#             return paths
-
-#     return stores
