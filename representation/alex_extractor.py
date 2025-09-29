@@ -103,11 +103,11 @@ class AlexNetFeatureExtractor(nn.Module):
                 from torchvision.models import AlexNet_Weights
                 self.model = torchvision.models.alexnet(weights=AlexNet_Weights.IMAGENET1K_V1)
             except Exception:
-                self.model = torchvision.models.alexnet(pretrained=True)
+                self.model = torchvision.models.alexnet(weights=None)
         else:
-            self.model = torchvision.models.alexnet(pretrained=False)
+            self.model = torchvision.models.alexnet(weights=None)
             if isinstance(weights, dict) and 'file' in weights:
-                state = torch.load(weights['file'], map_location='cpu')
+                state = torch.load(weights['file'], map_location=device)
                 if 'state_dict' in state:
                     state = state['state_dict']
                 state = {k.replace('module.', ''): v for k, v in state.items()}
@@ -117,6 +117,11 @@ class AlexNetFeatureExtractor(nn.Module):
         self.model.eval()
         self.device = torch.device(device)
         self.model.to(self.device)
+        if self.device.type == 'cuda':
+            try:
+                torch.backends.cudnn.benchmark = True
+            except Exception:
+                pass
 
         self._hook_out: Dict[str, torch.Tensor] = {}
         self._hooks: List[torch.utils.hooks.RemovableHandle] = []
@@ -144,7 +149,8 @@ class AlexNetFeatureExtractor(nn.Module):
     def forward_batch(self, pil_images: List[Image.Image], amp: bool = False) -> Dict[str, np.ndarray]:
         x = torch.stack([self.preprocess(im) for im in pil_images], dim=0).to(self.device, non_blocking=True)
         if amp and self.device.type == 'cuda':
-            with torch.cuda.amp.autocast():
+            # Update deprecated autocast to torch.amp.autocast("cuda", ...)
+            with torch.amp.autocast("cuda"):
                 _ = self.model(x)
         else:
             _ = self.model(x)
@@ -180,12 +186,20 @@ def build_alexnet_design_matrices_with_dataloader(
     """
     ds = PNGFolderDataset(folder)
     # collate_fn returns the batch as a list[Image.Image]
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=shuffle,
-                        num_workers=num_workers, collate_fn=lambda batch: batch)
+    _dev_str = kwargs_for_extractor_fn.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+    _is_cuda = torch.device(_dev_str).type == 'cuda'
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=_is_cuda,
+        collate_fn=lambda batch: batch,
+    )
 
     extractor = AlexNetFeatureExtractor(
         weights=kwargs_for_extractor_fn.get("weights", "imagenet"),
-        device=kwargs_for_extractor_fn.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        device=_dev_str
     )
 
     # warm up on first batch to size arrays
