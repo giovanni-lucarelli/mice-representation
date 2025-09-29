@@ -364,18 +364,20 @@ def mouse_transform(
     #         fill=0.5,
     #     ))
 
-    # Convert to grayscale before applying CSF blur+noise so both operate on luminance
+    # Convert to grayscale before applying CSF blur so both operate on luminance
     if to_gray:
         ops.append(RgbToGray(keep_channels=3 if gray_keep_channels else 1))
-        
+
     if apply_blur:
         # Dynamic kernel size to cover ~±3σ
         k_dyn = int(2 * ceil(3.0 * float(blur_sig))) + 1 if (blur_sig is not None and blur_sig > 0) else 1
         ops.append(GaussianBlur(kernel_size=k_dyn, sigma=blur_sig, decline=(blur_sig is None or blur_sig <= 0)))
-        
+
+    # Always convert to tensor before noise/normalization
+    ops.append(ToTensor())
+
     if apply_noise:
         ops.append(GaussianNoise(std=noise_std, mono=True, decline=(noise_std is None or noise_std <= 0), generator=noise_rng))
-        
-    ops.append(ToTensor())
+
     ops.append(Normalize(normalize))
     return transforms.Compose(ops)

@@ -11,25 +11,12 @@ train:
   dropout_rate: 0.3
   early_stopping_patience: 100
 
-  # optimizer:
-  #   name: AdamW
-  #   params:
-  #     lr: 3e-5
-  #     weight_decay: 1e-4
-
   optimizer:
     name: SGD
     params:
       lr: 0.03
       momentum: 0.9
       weight_decay: 1e-4
-
-  # scheduler:
-  #   name: ReduceLROnPlateau
-  #   params:
-  #     factor: 0.5
-  #     patience: 5
-  #     mode: min
 
   scheduler:
     name: MultiStepLR
@@ -46,7 +33,7 @@ train:
       tau: 0.1
       embedding_dim: 128
       model_output_dim: 4096
-      warmup_epochs: 0
+      warmup_epochs: 5
       z_const: 1260.17
 
   checkpoint_sub_dir: self-supervised_diet

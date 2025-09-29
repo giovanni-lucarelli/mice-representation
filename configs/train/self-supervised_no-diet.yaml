@@ -26,13 +26,13 @@ train:
   loss:
     name: InstanceDiscriminationLoss
     params:
-      mode: static
+      mode: dynamic
       m: 16384 #8192 # 4096
       gamma: 0.5
       tau: 0.07
       embedding_dim: 128
       model_output_dim: 4096
-      warmup_epochs: 1
+      warmup_epochs: 5
       z_const: 15.30 #2.24 #1232.82
   
   checkpoint_sub_dir: self-supervised_no-diet
