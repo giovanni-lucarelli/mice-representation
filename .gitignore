@@ -7,6 +7,10 @@ alex-matrices-*/
 # comment to save checkpoints
 # checkpoints/
 
+# mmap files
+*.mmap
+*.pkl
+
 # logs
 *.log
 *.pth

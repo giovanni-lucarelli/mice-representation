@@ -10,7 +10,7 @@ from neural_maps import (
     pls_corrected_single_source_to_B,
     pls_corrected_pooled_source_to_B,
     sim_corrected_model_to_B,
-    pls_corrected_model_to_B
+    pls_corrected_model_to_B,
 )
 
 from utils import load_memmap
@@ -61,7 +61,7 @@ def consistency_across_trials(index_df, sim_metric='RSA'):
     return pd.DataFrame(consistency_list)
 
 
-def interanimal_consistency_1v1(index_df, sim_metric='RSA'):
+def interanimal_consistency_1v1(index_df, sim_metric='RSA', n_boot=100, n_splits=10):
     '''    
     Compute inter-animal consistency for each area.
     '''
@@ -79,7 +79,7 @@ def interanimal_consistency_1v1(index_df, sim_metric='RSA'):
                     trials_s1,
                     trials_s2,
                     metric=sim_metric,
-                    n_boot=100,
+                    n_boot=n_boot,
                     seed=0
                 )
 
@@ -89,7 +89,8 @@ def interanimal_consistency_1v1(index_df, sim_metric='RSA'):
                     trials_s1,
                     trials_s2,
                     n_components=25,
-                    n_boot=100,
+                    n_boot=n_boot,
+                    n_splits=n_splits,
                     seed=0
                 )
 
@@ -106,7 +107,7 @@ def interanimal_consistency_1v1(index_df, sim_metric='RSA'):
 
     return pd.DataFrame(consistency_list)
 
-def interanimal_consistency_pool(index_df, sim_metric):
+def interanimal_consistency_pool(index_df, sim_metric, n_boot=100, n_splits=10):
     """
     Compute inter-animal consistency for each area, using pooled-source approach.
     """
@@ -126,7 +127,7 @@ def interanimal_consistency_pool(index_df, sim_metric):
                     source_trials_list, 
                     YB_trials, 
                     metric=sim_metric,
-                    n_boot=100, 
+                    n_boot=n_boot, 
                     seed=0
                 )
 
@@ -135,8 +136,8 @@ def interanimal_consistency_pool(index_df, sim_metric):
                     source_trials_list, 
                     YB_trials, 
                     n_components=25,
-                    n_splits=10, 
-                    n_boot=100, 
+                    n_splits=n_splits, 
+                    n_boot=n_boot, 
                     seed=0
                 )
 
@@ -153,22 +154,40 @@ def interanimal_consistency_pool(index_df, sim_metric):
     return pd.DataFrame(consistency_list)
 
 
-def compute_all_layer_scores(X_layers, index_df, sim_metric):
+def compute_all_layer_scores(X_layers, index_df, sim_metric, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, chunk_size: int = 1000, n_components: int = 25, test_areas: list = None, test_layers: list = None):
 
     all_layer_scores_list = []
 
     for layer_name, layer_path in X_layers.items():
         
-        F = 118  # number of stimuli (118)
-        # Infer shape from file size
-        file_size = os.path.getsize(layer_path)
-        D = file_size // (F * np.dtype(np.float32).itemsize)
-        shape = (F, D)
+        # Skip layers not in test_layers if specified
+        if test_layers is not None and layer_name not in test_layers:
+            if verbose:
+                print(f"Skipping layer {layer_name} (not in test_layers)")
+            continue
         
-        # load model design matrices
-        X_model = load_memmap(layer_path, shape=shape)
+        F = 118  # number of stimuli (118)
+        
+        # Allow either file paths (memmap on disk) or in-memory arrays
+        if isinstance(layer_path, (str, os.PathLike)):
+            file_size = os.path.getsize(layer_path)
+            D = file_size // (F * np.dtype(np.float32).itemsize)
+            shape = (F, D)
+            X_model = load_memmap(layer_path, shape=shape)
+        else:
+            # Assume it's a numpy-like array already in memory
+            X_model = np.asarray(layer_path, dtype=np.float32)
+            if X_model.ndim != 2 or X_model.shape[0] != F:
+                raise ValueError(f"Layer '{layer_name}' has invalid shape {X_model.shape}; expected (F={F}, D)")
 
         areas = get_areas(index_df)
+        
+        # Filter areas if test_areas specified
+        if test_areas is not None:
+            areas = [area for area in areas if area in test_areas]
+            if verbose:
+                print(f"Filtered areas: {areas}")
+        
         for area in areas:
             spec_ids = get_specimen_ids(index_df, area)
             
@@ -182,23 +201,28 @@ def compute_all_layer_scores(X_layers, index_df, sim_metric):
                         X_model, 
                         Y_trials, 
                         metric=sim_metric,
-                        n_boot=100, 
-                        seed=0
-                        )
+                        n_boot=n_boot, 
+                        seed=0,
+                        chunk_size=chunk_size
+                    )
                     
                 elif sim_metric == 'PLS':
                     
                     score, _ = pls_corrected_model_to_B(
                         X_model, 
                         Y_trials, 
-                        n_boot=100, 
+                        n_components=n_components,
+                        n_splits=n_splits,
+                        n_boot=n_boot,
                         seed=0
-                        )
-                    
+                    )
+
                 else:
                     raise ValueError(f'Unknown similarity metric: {sim_metric}. Choose from RSA, CKA, PLS.')
                 
-                print(f"Layer: {layer_name}, Area: {area}, Specimen: {B}, Score: {score:.4f}")
+                # Optional verbose logging
+                if verbose:
+                    print(f"Layer: {layer_name}, Area: {area}, Specimen: {B}, Score: {score:.4f}")
                 
                 all_layer_scores_list.append({
                     'layer': layer_name,
@@ -210,9 +234,12 @@ def compute_all_layer_scores(X_layers, index_df, sim_metric):
     return pd.DataFrame(all_layer_scores_list)
 
 
-def compute_area_scores(index_model, index_df, sim_metric):    
-    layer_scores = compute_all_layer_scores(index_model, index_df, sim_metric)
+def compute_area_scores(index_model, index_df, sim_metric, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, chunk_size: int = 30000, n_components: int = 25, test_areas: list = None, test_layers: list = None, model_name: str = 'ImageNet'):    
+    layer_scores = compute_all_layer_scores(index_model, index_df, sim_metric, n_boot=n_boot, n_splits=n_splits, verbose=verbose, chunk_size=chunk_size, n_components=n_components, test_areas=test_areas, test_layers=test_layers)
     median_scores = layer_scores.groupby(['area', 'layer'])['score'].median().reset_index()
     sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()
     median_scores = pd.merge(median_scores, sem_scores.rename(columns={'score': 'sem'}), on=['area', 'layer'])
+    # save results in a file
+    layer_scores.to_pickle(f'layer_scores_{model_name}.pkl')
+    median_scores.to_pickle(f'median_scores_{model_name}.pkl')
     return layer_scores, median_scores

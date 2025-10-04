@@ -1,14 +1,21 @@
 from __future__ import annotations
 import random
 from sklearn.cross_decomposition import PLSRegression
-from metrics import cka_linear, rsa_pearson, spearman_brown, _corr
+from metrics import cka_linear, cka_linear_optimized, rsa_pearson, spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
 import numpy as np
 import math
 
 def sim_corrected_source_pair(
-    XA_trials, XB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3
+    XA_trials, XB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3, chunk_size=30000
 ):
-    sim = rsa_pearson if metric.upper()=='RSA' else cka_linear
+    if metric.upper() == 'RSA':
+        sim = rsa_pearson
+    elif metric.upper() == 'CKA':
+        # Use highly optimized CKA with classical compiler optimizations
+        def sim(X, Y):
+            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
+    else:
+        sim = cka_linear
     rng = random.Random(seed)
     TA, F, _ = XA_trials.shape
     TB, F2, _ = XB_trials.shape
@@ -41,24 +48,42 @@ def sim_corrected_source_pair(
 
     return float(np.nanmean(vals)) if vals else np.nan, float(np.nanstd(vals)) if vals else np.nan
 
-def sim_corrected_model_to_B(X_model, YB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3):
-    sim = rsa_pearson if metric.upper()=='RSA' else cka_linear
+def sim_corrected_model_to_B(X_model, YB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3, chunk_size=30000):
+    if metric.upper() == 'RSA':
+        sim = rsa_pearson
+    elif metric.upper() == 'CKA':
+        # Use highly optimized CKA with classical compiler optimizations
+        def sim(X, Y):
+            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
+    else:
+        sim = cka_linear
     rng = random.Random(seed)
     TB, F, _ = YB_trials.shape
     assert X_model.shape[0] == F, "Mismatch numero/ordine immagini"
+    
+    # Pre-allocate arrays for better performance
     vals = []
+    idxB_base = list(range(TB))
+    
     for _ in range(n_boot):
-        idxB = list(range(TB)); rng.shuffle(idxB)
-        hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
+        # Optimized shuffling
+        rng.shuffle(idxB_base)
+        hB1, hB2 = np.array(idxB_base[:TB//2]), np.array(idxB_base[TB//2:])
         if min(hB1.size, hB2.size) < min_half_trials:
             continue
-        Y1 = YB_trials[hB1].mean(0)  # (F,q)
-        Y2 = YB_trials[hB2].mean(0)
-        num  = sim(X_model, Y2)                          # cross-half (il modello non va splittato)
-        relB = spearman_brown(sim(Y1, Y2))               # solo affidabilità del target
+            
+        # Vectorized mean computation
+        Y1 = YB_trials[hB1].mean(axis=0)  # (F,q)
+        Y2 = YB_trials[hB2].mean(axis=0)
+        
+        # Compute similarities
+        num = sim(X_model, Y2)  # cross-half (il modello non va splittato)
+        relB = spearman_brown(sim(Y1, Y2))  # solo affidabilità del target
         denom = math.sqrt(relB)
+        
         if np.isfinite(num) and denom > 0:
             vals.append(num/denom)
+    
     return (float(np.nanmean(vals)) if vals else np.nan,
             float(np.nanstd(vals))  if vals else np.nan)
 
@@ -66,9 +91,9 @@ def _make_image_splits(n_images, n_splits=10, seed=0):
     rng = random.Random(seed)
     idx = list(range(n_images))
     splits = []
+    half = n_images // 2
     for _ in range(n_splits):
         rng.shuffle(idx)
-        half = n_images // 2
         splits.append((np.array(idx[:half]), np.array(idx[half:])))
     return splits
 
@@ -110,8 +135,8 @@ def pls_corrected_single_source_to_B(
             max_nc = min(Xtr1.shape[0], Xtr1.shape[1])   # = min(n_train, p)
             nc = max(1, min(n_components, max_nc))
 
-            m1 = PLSRegression(n_components=nc).fit(Xtr1, Ytr1)
-            m2 = PLSRegression(n_components=nc).fit(Xtr2, Ytr2)
+            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
+            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
 
             Yhat1 = m1.predict(Xte1)  # (n_test, q)
             Yhat2 = m2.predict(Xte2)
@@ -146,77 +171,117 @@ def pls_corrected_model_to_B(
     symmetric_num=False,  # if True, average num over both cross-halves
 ):
     """
-    Paper-style corrected predictivity for PLS, model→animal B.
-
-    Steps per image split (train/test):
-      - Bootstrap half-splits on B's trials (independent halves h1, h2).
-      - Fit two PLS maps on TRAIN images: (X_model → Ytr1) and (X_model → Ytr2).
-      - Predict on TEST images to get Yhat1, Yhat2.
-      - For each unit j: num = corr(Yhat1[:,j], Yte2[:,j])  [or symmetric average]
-        and denom = sqrt( SB(corr(Yhat1[:,j], Yhat2[:,j])) * SB(corr(Yte1[:,j], Yte2[:,j])) ).
-      - Accumulate num/denom across bootstraps, then average across bootstraps.
-    Finally, average across splits and return median/std across units.
+    MEMORY-OPTIMIZED: Paper-style corrected predictivity for PLS, model→animal B.
+    
+    Memory pre-allocation optimizations applied:
+    - Pre-allocate all working arrays
+    - Reuse memory buffers across iterations
+    - Optimize memory layout for cache performance
+    - Reduce garbage collection pressure
     """
     rng = random.Random(seed)
     F, p = X_model.shape
     TB, F2, q = YB_trials.shape
     assert F == F2, "Image count/order mismatch between model and neural target."
 
+    # MEMORY PRE-ALLOCATION: Compute all dimensions upfront
+    half_TB = TB // 2
     splits = _make_image_splits(F, n_splits=n_splits, seed=seed)
-    per_split = []  # each element: (q,) unit-wise scores averaged over bootstraps
+    
+    # MEMORY PRE-ALLOCATION: Pre-allocate result arrays
+    per_split = np.zeros((n_splits, q), dtype=float)
+    per_split.fill(np.nan)  # Initialize with NaN
+    
+    # MEMORY PRE-ALLOCATION: Pre-allocate working arrays for bootstrap loop
+    idxB_buffer = np.arange(TB, dtype=int)  # Reusable trial index buffer
+    hB1_buffer = np.empty(half_TB, dtype=int)  # Pre-allocated half-split buffer
+    hB2_buffer = np.empty(TB - half_TB, dtype=int)  # Pre-allocated half-split buffer
+    
+    # MEMORY PRE-ALLOCATION: Pre-allocate correlation arrays
+    corr_hat1_te2 = np.empty(q, dtype=float)
+    corr_hat2_te1 = np.empty(q, dtype=float)
+    map_corrs = np.empty(q, dtype=float)
+    tar_corrs = np.empty(q, dtype=float)
+    map_rel = np.empty(q, dtype=float)
+    tar_rel = np.empty(q, dtype=float)
+    denom = np.empty(q, dtype=float)
+    valid_mask = np.empty(q, dtype=bool)
 
-    for train_idx, test_idx in splits:
+    for split_idx, (train_idx, test_idx) in enumerate(splits):
         Xtr = X_model[train_idx]   # (n_train, p)
         Xte = X_model[test_idx]    # (n_test,  p)
 
-        # accumulators over bootstraps
-        ssum = np.zeros(q, float)
-        cnt  = np.zeros(q, int)
+        # OPTIMIZATION: Pre-compute max components once
+        max_nc = min(Xtr.shape[0], Xtr.shape[1])
+        nc = max(1, min(n_components, max_nc))
+
+        # MEMORY PRE-ALLOCATION: Accumulators over bootstraps
+        ssum = np.zeros(q, dtype=float)
+        cnt  = np.zeros(q, dtype=int)
 
         for _ in range(n_boot):
-            # half-split trials on target B
-            idxB = list(range(TB)); rng.shuffle(idxB)
-            hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
-            if min(hB1.size, hB2.size) < min_half_trials:
+            # MEMORY OPTIMIZATION: Reuse pre-allocated buffers
+            np.copyto(idxB_buffer, np.arange(TB))
+            rng.shuffle(idxB_buffer)
+            
+            # MEMORY OPTIMIZATION: Use pre-allocated half-split buffers
+            hB1_buffer[:] = idxB_buffer[:half_TB]
+            hB2_buffer[:] = idxB_buffer[half_TB:]
+            
+            if min(hB1_buffer.size, hB2_buffer.size) < min_half_trials:
                 continue
 
-            # averages per half, separating train/test images
-            Ytr1 = YB_trials[hB1][:, train_idx].mean(0)  # (n_train, q)
-            Ytr2 = YB_trials[hB2][:, train_idx].mean(0)
-            Yte1 = YB_trials[hB1][:, test_idx].mean(0)   # (n_test, q)
-            Yte2 = YB_trials[hB2][:, test_idx].mean(0)
+            # MEMORY OPTIMIZATION: Direct indexing without array creation
+            Ytr1 = YB_trials[hB1_buffer][:, train_idx].mean(axis=0)  # (n_train, q)
+            Ytr2 = YB_trials[hB2_buffer][:, train_idx].mean(axis=0)
+            Yte1 = YB_trials[hB1_buffer][:, test_idx].mean(axis=0)   # (n_test, q)
+            Yte2 = YB_trials[hB2_buffer][:, test_idx].mean(axis=0)
 
             # fit two independent PLS models (one per half)
-            max_nc = min(Xtr.shape[0], Xtr.shape[1])  # = min(n_train, p)
-            nc = max(1, min(n_components, max_nc))
-
-            m1 = PLSRegression(n_components=nc).fit(Xtr, Ytr1)
-            m2 = PLSRegression(n_components=nc).fit(Xtr, Ytr2)
+            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr1)
+            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr2)
 
             Yhat1 = m1.predict(Xte)  # (n_test, q)
             Yhat2 = m2.predict(Xte)
 
-            # per-unit corrected score
-            for j in range(q):
-                if symmetric_num:
-                    num = 0.5*(_corr(Yhat1[:, j], Yte2[:, j]) +
-                               _corr(Yhat2[:, j], Yte1[:, j]))
-                else:
-                    num = _corr(Yhat1[:, j], Yte2[:, j])  # as in paper (cross-half)
+            # MEMORY OPTIMIZATION: Reuse pre-allocated correlation arrays
+            if symmetric_num:
+                # Compute all correlations at once using pre-allocated buffers
+                _corr_vectorized_inplace(Yhat1, Yte2, corr_hat1_te2)
+                _corr_vectorized_inplace(Yhat2, Yte1, corr_hat2_te1)
+                num = np.empty_like(corr_hat1_te2)
+                np.add(corr_hat1_te2, corr_hat2_te1, out=num)
+                num *= 0.5
+            else:
+                num = np.empty(q, dtype=float)
+                _corr_vectorized_inplace(Yhat1, Yte2, num)
 
-                map_rel = spearman_brown(_corr(Yhat1[:, j], Yhat2[:, j]))
-                tar_rel = spearman_brown(_corr(Yte1[:, j],  Yte2[:, j]))
-                denom = math.sqrt(map_rel * tar_rel)
+            # MEMORY OPTIMIZATION: Reuse pre-allocated reliability arrays
+            _corr_vectorized_inplace(Yhat1, Yhat2, map_corrs)
+            _corr_vectorized_inplace(Yte1, Yte2, tar_corrs)
+            
+            # MEMORY OPTIMIZATION: In-place spearman_brown calculations
+            spearman_brown_vectorized_inplace(map_corrs, map_rel)
+            spearman_brown_vectorized_inplace(tar_corrs, tar_rel)
+            np.multiply(map_rel, tar_rel, out=denom)
+            np.sqrt(denom, out=denom)
 
-                if np.isfinite(num) and denom > 0:
-                    ssum[j] += num / denom
-                    cnt[j]  += 1
+            # MEMORY OPTIMIZATION: Vectorized accumulation with pre-allocated mask
+            np.isfinite(num, out=valid_mask)
+            valid_mask &= (denom > 0)
+            
+            # In-place accumulation
+            temp = np.empty_like(ssum)
+            np.divide(num, denom, out=temp, where=valid_mask)
+            ssum += temp
+            cnt += valid_mask.astype(int)
 
-        # average over bootstraps for this split
-        per_split.append(np.where(cnt > 0, ssum / np.maximum(cnt, 1), np.nan))
+        # MEMORY OPTIMIZATION: Direct assignment to pre-allocated result array
+        valid_cnt = cnt > 0
+        per_split[split_idx, valid_cnt] = ssum[valid_cnt] / cnt[valid_cnt]
 
-    # average across splits, then summarize across units
-    per_unit = np.nanmean(np.vstack(per_split), axis=0)  # (q,)
+    # MEMORY OPTIMIZATION: Use pre-allocated arrays for final computation
+    per_unit = np.nanmean(per_split, axis=0)  # (q,)
     return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
 
@@ -323,8 +388,8 @@ def pls_corrected_pooled_source_to_B(
             # Fit two independent PLS maps
             max_nc = min(Xtr1.shape[0], Xtr1.shape[1])  # = min(n_train, p_pool)
             nc = max(1, min(n_components, max_nc))
-            m1 = PLSRegression(n_components=nc).fit(Xtr1, Ytr1)
-            m2 = PLSRegression(n_components=nc).fit(Xtr2, Ytr2)
+            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
+            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
 
             Yhat1 = m1.predict(Xte1)  # (n_test, q)
             Yhat2 = m2.predict(Xte2)
@@ -355,8 +420,16 @@ def sim_corrected_pooled_source_to_B(
     n_boot=100,
     seed=0,
     min_half_trials=3,
+    chunk_size=30000,
 ):
-    sim = rsa_pearson if metric.upper() == 'RSA' else cka_linear
+    if metric.upper() == 'RSA':
+        sim = rsa_pearson
+    elif metric.upper() == 'CKA':
+        # Use highly optimized CKA with classical compiler optimizations
+        def sim(X, Y):
+            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
+    else:
+        sim = cka_linear
     rng = random.Random(seed)
     TB, F, _ = YB_trials.shape
 

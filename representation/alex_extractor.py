@@ -60,6 +60,7 @@ class AlexNetFeatureExtractor(nn.Module):
             except Exception:
                 self.model = torchvision.models.alexnet(weights=None)
         else:
+            # Use torchvision AlexNet with random weights (same initialization as mouse-vision)
             self.model = torchvision.models.alexnet(weights=None)
             if isinstance(weights, dict) and 'file' in weights:
                 state = torch.load(weights['file'], map_location=device)
@@ -67,7 +68,7 @@ class AlexNetFeatureExtractor(nn.Module):
                     state = state['state_dict']
                 state = {k.replace('module.', ''): v for k, v in state.items()}
                 self.model.load_state_dict(state, strict=False)
-            # else: random weights
+            # else: random weights (same as mouse-vision initialization)
 
         self.model.eval()
         self.device = torch.device(device)
@@ -88,6 +89,7 @@ class AlexNetFeatureExtractor(nn.Module):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
         ])
+
 
     def _register_hooks(self):
         for name, idx in self.CONV_IDX.items():

@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train model with YAML configs")
     p.add_argument("--project-config", type=str, default="configs/project.yaml")
     p.add_argument("--config", type=str, required=True, help="Experiment YAML file")
+    p.add_argument("--augmentations", type=str, default="True", help="Whether to use augmentations")
     p.add_argument(
         "--set",
         type=str,
@@ -70,8 +71,8 @@ def main() -> None:
         to_gray = resolved.experiment.diet.grayscale,
         apply_blur = resolved.experiment.diet.blur,
         apply_noise = resolved.experiment.diet.noise,
-        train = True, # enables augmentation
-        apply_motion = False,
+        train = args.augmentations, #True, # enables augmentation
+        # apply_motion = False,
         self_supervised = resolved.experiment.train.self_supervised,
     )
     
@@ -83,7 +84,7 @@ def main() -> None:
         apply_blur = resolved.experiment.diet.blur,
         apply_noise = resolved.experiment.diet.noise,
         train = False,
-        apply_motion = False,
+        # apply_motion = False,
     )
 
     data_cfg = resolved.experiment.data

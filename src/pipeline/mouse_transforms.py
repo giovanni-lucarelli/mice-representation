@@ -324,13 +324,13 @@ def mouse_transform(
     apply_blur: bool = True,
     apply_noise: bool = True,
     noise_rng: torch.Generator | None = None,
-    affine_rng: torch.Generator | None = None,
     to_gray: bool = True,
     gray_keep_channels: bool = True,
     train: bool = True,
-    apply_motion: bool = False,
-    roll_deg: float = DEFAULT_ROLL_DEG,
-    translate: Tuple[float, float] = DEFAULT_TRANSLATE,
+    # affine_rng: torch.Generator | None = None,
+    # apply_motion: bool = False,
+    # roll_deg: float = DEFAULT_ROLL_DEG,
+    # translate: Tuple[float, float] = DEFAULT_TRANSLATE,
     self_supervised: bool = False,
 ) -> transforms.Compose:
     """
