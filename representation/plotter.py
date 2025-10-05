@@ -91,9 +91,9 @@ def plot_comparison(median_scores_random, median_scores_inet, metric_name):
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
-def plot_comparison_multi(scores_list, names=None, metric_name='CKA'):
+def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
     """
-    Plot a CKA comparison across multiple models.
+    Plot a metriccomparison across multiple models.
 
     Parameters
     ----------
@@ -220,7 +220,7 @@ def analyze_checkpoints(
     checkpoint_dir: str,
     image_folder: str,
     index_csv_path: str,
-    metric: str = "CKA",
+    metric: str = "PLS",
     layers_keep: Optional[List[str]] = None,
     batch_size: int = 16,
     num_workers: int = 12,
@@ -230,6 +230,7 @@ def analyze_checkpoints(
     chunk_size: int = 30000,
     n_boot: int = 5,
     n_splits: int = 5,
+    n_components: int = 25,
 ):
     """
     Minimal checkpoint sweep with tqdm prints.
@@ -270,7 +271,7 @@ def analyze_checkpoints(
                 save_dir=save_dir,
                 return_in_memory=False,
             )
-            layer_scores, med = compute_area_scores(mats, index_df, metric, chunk_size=chunk_size, n_boot=n_boot, n_splits=n_splits)
+            layer_scores, med = compute_area_scores(mats, index_df, metric, chunk_size=chunk_size, n_boot=n_boot, n_splits=n_splits, n_components=n_components)
             layer_scores = layer_scores.assign(checkpoint=Path(path).name, epoch=epoch)
             med = med.assign(checkpoint=Path(path).name, epoch=epoch)
             per_ckpt.append((layer_scores, med, epoch, path))
@@ -298,7 +299,7 @@ def analyze_checkpoints(
 # --- Plots over checkpoint sweeps ---
 def plot_checkpoint_comparison(
     all_median_scores: pd.DataFrame,
-    metric_name: str = "CKA",
+    metric_name: str = "PLS",
     max_checkpoints: int = 20,
     figsize: Tuple[int, int] = (15, 10)
 ):
@@ -364,7 +365,7 @@ def plot_checkpoint_comparison(
 
 def plot_checkpoint_evolution(
     all_median_scores: pd.DataFrame,
-    metric_name: str = "CKA",
+    metric_name: str = "PLS",
     figsize: Tuple[int, int] = (12, 8)
 ):
     """

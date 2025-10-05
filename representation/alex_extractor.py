@@ -47,8 +47,11 @@ class AlexNetFeatureExtractor(nn.Module):
     Conv layers are GAP-pooled to vectors.
     Exposes: 'conv1','conv2','conv3','conv4','conv5','fc6','fc7','fc8'
     """
+    # Layer mapping to match mouse-vision AlexNetBN exactly: features.3, features.7, features.10, features.13, features.17, classifier.3, classifier.7
+    # Mouse-vision extracts: conv2(3), pool2(7), conv3(10), conv4(13), pool5(17), fc6(3), fc7(7)
+    # Map to equivalent layers in standard AlexNet:
     CONV_IDX = {'conv1': 0, 'conv2': 3, 'conv3': 6, 'conv4': 8, 'conv5': 10}
-    FC_IDX   = {'fc6': 2, 'fc7': 5, 'fc8': 6}
+    FC_IDX   = {'fc6': 1, 'fc7': 4, 'fc8': 6}  # classifier.1=fc6, classifier.4=fc7
 
     def __init__(self, weights: Union[str, dict] = 'imagenet', device: str = 'cpu'):
         super().__init__()
@@ -60,7 +63,6 @@ class AlexNetFeatureExtractor(nn.Module):
             except Exception:
                 self.model = torchvision.models.alexnet(weights=None)
         else:
-            # Use torchvision AlexNet with random weights (same initialization as mouse-vision)
             self.model = torchvision.models.alexnet(weights=None)
             if isinstance(weights, dict) and 'file' in weights:
                 state = torch.load(weights['file'], map_location=device)
@@ -68,7 +70,7 @@ class AlexNetFeatureExtractor(nn.Module):
                     state = state['state_dict']
                 state = {k.replace('module.', ''): v for k, v in state.items()}
                 self.model.load_state_dict(state, strict=False)
-            # else: random weights (same as mouse-vision initialization)
+            # else: random weights
 
         self.model.eval()
         self.device = torch.device(device)
@@ -84,12 +86,11 @@ class AlexNetFeatureExtractor(nn.Module):
         self._register_hooks()
 
         self.preprocess = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(64),
+            transforms.CenterCrop(64),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
         ])
-
 
     def _register_hooks(self):
         for name, idx in self.CONV_IDX.items():

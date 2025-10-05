@@ -1,91 +1,9 @@
 from __future__ import annotations
 import random
 from sklearn.cross_decomposition import PLSRegression
-from metrics import cka_linear, cka_linear_optimized, rsa_pearson, spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
+from metrics import spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
 import numpy as np
 import math
-
-def sim_corrected_source_pair(
-    XA_trials, XB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3, chunk_size=30000
-):
-    if metric.upper() == 'RSA':
-        sim = rsa_pearson
-    elif metric.upper() == 'CKA':
-        # Use highly optimized CKA with classical compiler optimizations
-        def sim(X, Y):
-            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
-    else:
-        sim = cka_linear
-    rng = random.Random(seed)
-    TA, F, _ = XA_trials.shape
-    TB, F2, _ = XB_trials.shape
-    assert F == F2, "Mismatch numero/ordine immagini"
-
-    vals = []
-    for _ in range(n_boot):
-        idxA = list(range(TA)); rng.shuffle(idxA)
-        idxB = list(range(TB)); rng.shuffle(idxB)
-        hA1, hA2 = np.array(idxA[:TA//2]), np.array(idxA[TA//2:])
-        hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
-        if min(hA1.size,hA2.size,hB1.size,hB2.size) < min_half_trials:
-            continue
-
-        XA1 = XA_trials[hA1].mean(0)  # (immagini × featA)
-        XA2 = XA_trials[hA2].mean(0)
-        XB1 = XB_trials[hB1].mean(0)  # (immagini × featB)
-        XB2 = XB_trials[hB2].mean(0)
-
-        # numeratore cross-half simmetrico
-        num  = 0.5*(sim(XA1, XB2) + sim(XA2, XB1))
-        # reliabilities (stessa metrica) + SB
-        relA = spearman_brown(sim(XA1, XA2))
-        # print("relA:", relA)
-        relB = spearman_brown(sim(XB1, XB2))
-        # print("relB:", relB)
-        denom = math.sqrt(relA * relB)
-        if np.isfinite(num) and denom > 0:
-            vals.append(num / denom)
-
-    return float(np.nanmean(vals)) if vals else np.nan, float(np.nanstd(vals)) if vals else np.nan
-
-def sim_corrected_model_to_B(X_model, YB_trials, metric='RSA', n_boot=100, seed=0, min_half_trials=3, chunk_size=30000):
-    if metric.upper() == 'RSA':
-        sim = rsa_pearson
-    elif metric.upper() == 'CKA':
-        # Use highly optimized CKA with classical compiler optimizations
-        def sim(X, Y):
-            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
-    else:
-        sim = cka_linear
-    rng = random.Random(seed)
-    TB, F, _ = YB_trials.shape
-    assert X_model.shape[0] == F, "Mismatch numero/ordine immagini"
-    
-    # Pre-allocate arrays for better performance
-    vals = []
-    idxB_base = list(range(TB))
-    
-    for _ in range(n_boot):
-        # Optimized shuffling
-        rng.shuffle(idxB_base)
-        hB1, hB2 = np.array(idxB_base[:TB//2]), np.array(idxB_base[TB//2:])
-        if min(hB1.size, hB2.size) < min_half_trials:
-            continue
-            
-        # Vectorized mean computation
-        Y1 = YB_trials[hB1].mean(axis=0)  # (F,q)
-        Y2 = YB_trials[hB2].mean(axis=0)
-        
-        # Compute similarities
-        num = sim(X_model, Y2)  # cross-half (il modello non va splittato)
-        relB = spearman_brown(sim(Y1, Y2))  # solo affidabilità del target
-        denom = math.sqrt(relB)
-        
-        if np.isfinite(num) and denom > 0:
-            vals.append(num/denom)
-    
-    return (float(np.nanmean(vals)) if vals else np.nan,
-            float(np.nanstd(vals))  if vals else np.nan)
 
 def _make_image_splits(n_images, n_splits=10, seed=0):
     rng = random.Random(seed)
@@ -141,7 +59,7 @@ def pls_corrected_single_source_to_B(
             Yhat1 = m1.predict(Xte1)  # (n_test, q)
             Yhat2 = m2.predict(Xte2)
 
-            # per-unità: numeratore e reliabilities SB
+            # per-unità: numerator e reliabilities SB
             for j in range(q):
                 num = _corr(Yhat1[:,j], Yte2[:,j])                 # cross-half as in the paper
                 # num = 0.5*(_corr(Yhat1[:,j], Yte2[:,j]) + _corr(Yhat2[:,j], Yte1[:,j]))  # simmetrico
@@ -284,6 +202,69 @@ def pls_corrected_model_to_B(
     per_unit = np.nanmean(per_split, axis=0)  # (q,)
     return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
+# -------------------------------------------------------
+# POOLED SOURCE → target B : PLS (paper-style corrected)
+# -------------------------------------------------------
+def pls_corrected_pooled_source_to_B(
+    source_trials_list,   # list of (Ti, F, pi) arrays for all sources A≠B
+    YB_trials,            # (TB, F, q)
+    n_components=25,
+    n_splits=10,
+    n_boot=100,
+    seed=0,
+    min_half_trials=3):
+    
+    rng = random.Random(seed)
+    TB, F, q = YB_trials.shape
+    splits = _make_image_splits(F, n_splits=n_splits, seed=seed)
+
+    per_split = []  # each: (q,) per-unit scores
+    for train_idx, test_idx in splits:
+        ssum = np.zeros(q, float); cnt = np.zeros(q, int)
+
+        for _ in range(n_boot):
+            # Build pooled source halves for this bootstrap + split
+            pooled = _pooled_halves_sources(
+                source_trials_list, train_idx, test_idx, rng=rng,
+                min_half_trials=min_half_trials
+            )
+            if pooled is None:
+                continue
+            Xtr1, Xtr2, Xte1, Xte2 = pooled
+
+            # Target B half-split
+            idxB = list(range(TB)); rng.shuffle(idxB)
+            hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
+            if min(hB1.size, hB2.size) < min_half_trials:
+                continue
+            Ytr1 = YB_trials[hB1][:, train_idx].mean(0)  # (n_train, q)
+            Ytr2 = YB_trials[hB2][:, train_idx].mean(0)
+            Yte1 = YB_trials[hB1][:, test_idx].mean(0)   # (n_test,  q)
+            Yte2 = YB_trials[hB2][:, test_idx].mean(0)
+
+            # Fit two independent PLS maps
+            max_nc = min(Xtr1.shape[0], Xtr1.shape[1])  # = min(n_train, p_pool)
+            nc = max(1, min(n_components, max_nc))
+            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
+            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
+
+            Yhat1 = m1.predict(Xte1)  # (n_test, q)
+            Yhat2 = m2.predict(Xte2)
+
+            # Per-unit corrected score (paper Eq. 4 style)
+            for j in range(q):
+                num = _corr(Yhat1[:, j], Yte2[:, j])  # cross-half numerator
+                map_rel = spearman_brown(_corr(Yhat1[:, j], Yhat2[:, j]))
+                tar_rel = spearman_brown(_corr(Yte1[:, j],  Yte2[:, j]))
+                denom = math.sqrt(map_rel * tar_rel)
+                if np.isfinite(num) and denom > 0:
+                    ssum[j] += num / denom
+                    cnt[j]  += 1
+
+        per_split.append(np.where(cnt > 0, ssum / np.maximum(cnt, 1), np.nan))
+
+    per_unit = np.nanmean(np.vstack(per_split), axis=0)  # (q,)
+    return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
 def _pooled_halves_sources(source_trials_list, train_idx=None, test_idx=None,
                            rng=None, min_half_trials=3):
@@ -343,119 +324,3 @@ def _pooled_halves_sources(source_trials_list, train_idx=None, test_idx=None,
         Xte1 = np.concatenate(X1_chunks_test,  axis=1)  # (n_test,  p_pool)
         Xte2 = np.concatenate(X2_chunks_test,   axis=1)
         return (Xtr1, Xtr2, Xte1, Xte2)
-
-
-# -------------------------------------------------------
-# POOLED SOURCE → target B : PLS (paper-style corrected)
-# -------------------------------------------------------
-def pls_corrected_pooled_source_to_B(
-    source_trials_list,   # list of (Ti, F, pi) arrays for all sources A≠B
-    YB_trials,            # (TB, F, q)
-    n_components=25,
-    n_splits=10,
-    n_boot=100,
-    seed=0,
-    min_half_trials=3,
-):
-    rng = random.Random(seed)
-    TB, F, q = YB_trials.shape
-    splits = _make_image_splits(F, n_splits=n_splits, seed=seed)
-
-    per_split = []  # each: (q,) per-unit scores
-    for train_idx, test_idx in splits:
-        ssum = np.zeros(q, float); cnt = np.zeros(q, int)
-
-        for _ in range(n_boot):
-            # Build pooled source halves for this bootstrap + split
-            pooled = _pooled_halves_sources(
-                source_trials_list, train_idx, test_idx, rng=rng,
-                min_half_trials=min_half_trials
-            )
-            if pooled is None:
-                continue
-            Xtr1, Xtr2, Xte1, Xte2 = pooled
-
-            # Target B half-split
-            idxB = list(range(TB)); rng.shuffle(idxB)
-            hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
-            if min(hB1.size, hB2.size) < min_half_trials:
-                continue
-            Ytr1 = YB_trials[hB1][:, train_idx].mean(0)  # (n_train, q)
-            Ytr2 = YB_trials[hB2][:, train_idx].mean(0)
-            Yte1 = YB_trials[hB1][:, test_idx].mean(0)   # (n_test,  q)
-            Yte2 = YB_trials[hB2][:, test_idx].mean(0)
-
-            # Fit two independent PLS maps
-            max_nc = min(Xtr1.shape[0], Xtr1.shape[1])  # = min(n_train, p_pool)
-            nc = max(1, min(n_components, max_nc))
-            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
-            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
-
-            Yhat1 = m1.predict(Xte1)  # (n_test, q)
-            Yhat2 = m2.predict(Xte2)
-
-            # Per-unit corrected score (paper Eq. 4 style)
-            for j in range(q):
-                num = _corr(Yhat1[:, j], Yte2[:, j])  # cross-half numerator
-                map_rel = spearman_brown(_corr(Yhat1[:, j], Yhat2[:, j]))
-                tar_rel = spearman_brown(_corr(Yte1[:, j],  Yte2[:, j]))
-                denom = math.sqrt(map_rel * tar_rel)
-                if np.isfinite(num) and denom > 0:
-                    ssum[j] += num / denom
-                    cnt[j]  += 1
-
-        per_split.append(np.where(cnt > 0, ssum / np.maximum(cnt, 1), np.nan))
-
-    per_unit = np.nanmean(np.vstack(per_split), axis=0)  # (q,)
-    return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
-
-
-# ---------------------------------------------------------
-# POOLED SOURCE → target B : RSA / CKA (SB-corrected)
-# ---------------------------------------------------------
-def sim_corrected_pooled_source_to_B(
-    source_trials_list,   # list of (Ti, F, pi)
-    YB_trials,            # (TB, F, q)
-    metric='RSA',
-    n_boot=100,
-    seed=0,
-    min_half_trials=3,
-    chunk_size=30000,
-):
-    if metric.upper() == 'RSA':
-        sim = rsa_pearson
-    elif metric.upper() == 'CKA':
-        # Use highly optimized CKA with classical compiler optimizations
-        def sim(X, Y):
-            return cka_linear_optimized(X, Y, chunk_size=chunk_size)
-    else:
-        sim = cka_linear
-    rng = random.Random(seed)
-    TB, F, _ = YB_trials.shape
-
-    vals = []
-    for _ in range(n_boot):
-        # Pooled source halves (no train/test split for RSA/CKA)
-        pooled = _pooled_halves_sources(source_trials_list, train_idx=None, test_idx=None,
-                                        rng=rng, min_half_trials=min_half_trials)
-        if pooled is None:
-            continue
-        XA1, XA2 = pooled  # (F × p_pool) each
-
-        # Target halves
-        idxB = list(range(TB)); rng.shuffle(idxB)
-        hB1, hB2 = np.array(idxB[:TB//2]), np.array(idxB[TB//2:])
-        if min(hB1.size, hB2.size) < min_half_trials:
-            continue
-        Y1 = YB_trials[hB1].mean(0)  # (F, q)
-        Y2 = YB_trials[hB2].mean(0)
-
-        # Symmetric numerator + SB correction on both sides
-        num  = 0.5 * (sim(XA1, Y2) + sim(XA2, Y1))
-        relA = spearman_brown(sim(XA1, XA2))
-        relB = spearman_brown(sim(Y1,  Y2))
-        den = math.sqrt(relA * relB)
-        if np.isfinite(num) and den > 0:
-            vals.append(num / den)
-
-    return float(np.nanmean(vals)) if vals else np.nan, float(np.nanstd(vals)) if vals else np.nan

@@ -321,7 +321,6 @@ def main() -> None:
         if 'embedding_func' in cpt:
             proj.load_state_dict(cpt['embedding_func'])
         elif 'loss_state_dict' in cpt and '_embedding_func.weight' in cpt['loss_state_dict']:
-            # Adatta se la testa di proiezione è salvata diversamente
             proj_state_dict = {k.replace('_embedding_func.', ''): v for k, v in cpt['loss_state_dict'].items() if k.startswith('_embedding_func.')}
             proj.load_state_dict(proj_state_dict)
 

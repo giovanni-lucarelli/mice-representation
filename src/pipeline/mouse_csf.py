@@ -68,14 +68,8 @@ def _get_gaussian_kernel2d(sigma: float, k: int, device: torch.device) -> torch.
     _GAUSS_KERNEL_CACHE[key] = kernel2d
     return kernel2d
 
-# Prefer project-wide device flag; fallback to True if not available
-try:
-    from ..config import USE_CUDA  # type: ignore
-except Exception:
-    try:
-        from config import USE_CUDA  # type: ignore
-    except Exception:
-        USE_CUDA = True  # fallback
+# Use CUDA if available, with fallback to CPU
+USE_CUDA = torch.cuda.is_available()
 
 torch.manual_seed(SEED)
 np.random.seed(SEED)

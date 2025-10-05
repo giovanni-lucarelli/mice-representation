@@ -5,18 +5,15 @@ import itertools
 
 from utils import get_areas, get_specimen_ids, get_trials
 from neural_maps import (
-    sim_corrected_source_pair,
-    sim_corrected_pooled_source_to_B,
     pls_corrected_single_source_to_B,
     pls_corrected_pooled_source_to_B,
-    sim_corrected_model_to_B,
     pls_corrected_model_to_B,
 )
 
 from utils import load_memmap
 import os
 
-def consistency_across_trials(index_df, sim_metric='RSA'):
+def consistency_across_trials(index_df):
     '''
     Consistency across trials within the same area and same specimen ID (each with itself).
     '''
@@ -28,28 +25,13 @@ def consistency_across_trials(index_df, sim_metric='RSA'):
         for specimen_id in specimen_ids:
             sid_trials = get_trials(index_df, specimen_id, area)
 
-            if sim_metric.upper() in ['RSA', 'CKA']:
-
-                sim_sid_mean, sim_sid_std = sim_corrected_source_pair(
-                    sid_trials,
-                    sid_trials,
-                    metric=sim_metric,
-                    n_boot=100, 
-                    seed=0
-                )
-
-            elif sim_metric.upper() == 'PLS':
-
-                sim_sid_mean, sim_sid_std = pls_corrected_single_source_to_B(
-                    sid_trials,
-                    sid_trials,
-                    n_components=25,
-                    n_boot=100,
-                    seed=0
-                )
-
-            else:
-                raise ValueError(f'Unknown similarity metric: {sim_metric}. Choose from RSA, CKA, PLS.')
+            sim_sid_mean, sim_sid_std = pls_corrected_single_source_to_B(
+                sid_trials,
+                sid_trials,
+                n_components=25,
+                n_boot=100,
+                seed=0
+            )
 
             consistency_list.append({
                 'Area': area,
@@ -61,7 +43,7 @@ def consistency_across_trials(index_df, sim_metric='RSA'):
     return pd.DataFrame(consistency_list)
 
 
-def interanimal_consistency_1v1(index_df, sim_metric='RSA', n_boot=100, n_splits=10):
+def interanimal_consistency_1v1(index_df, n_boot=100, n_splits=10, n_components=25):
     '''    
     Compute inter-animal consistency for each area.
     '''
@@ -73,29 +55,15 @@ def interanimal_consistency_1v1(index_df, sim_metric='RSA', n_boot=100, n_splits
         for spec_id1, spec_id2 in itertools.combinations(specimen_ids, 2):
             trials_s1 = get_trials(index_df, spec_id1, area)
             trials_s2 = get_trials(index_df, spec_id2, area)
-            if sim_metric.upper() in ['RSA', 'CKA']:
 
-                sim_sid_mean, sim_sid_std = sim_corrected_source_pair(
-                    trials_s1,
-                    trials_s2,
-                    metric=sim_metric,
-                    n_boot=n_boot,
-                    seed=0
-                )
-
-            elif sim_metric.upper() == 'PLS':
-
-                sim_sid_mean, sim_sid_std = pls_corrected_single_source_to_B(
-                    trials_s1,
-                    trials_s2,
-                    n_components=25,
-                    n_boot=n_boot,
-                    n_splits=n_splits,
-                    seed=0
-                )
-
-            else:
-                raise ValueError(f'Unknown similarity metric: {sim_metric}. Choose from RSA, CKA, PLS.')
+            sim_sid_mean, sim_sid_std = pls_corrected_single_source_to_B(
+                trials_s1,
+                trials_s2,
+                n_components=n_components,
+                n_boot=n_boot,
+                n_splits=n_splits,
+                seed=0
+            )
 
             consistency_list.append({
                 'Area': area,
@@ -107,7 +75,7 @@ def interanimal_consistency_1v1(index_df, sim_metric='RSA', n_boot=100, n_splits
 
     return pd.DataFrame(consistency_list)
 
-def interanimal_consistency_pool(index_df, sim_metric, n_boot=100, n_splits=10):
+def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components=25):
     """
     Compute inter-animal consistency for each area, using pooled-source approach.
     """
@@ -122,39 +90,25 @@ def interanimal_consistency_pool(index_df, sim_metric, n_boot=100, n_splits=10):
             source_trials_list = [get_trials(index_df, s, area) for s in sources]  # [(Ti, F, pi), ...]
             YB_trials = get_trials(index_df, B, area)                               # (TB, F, q)
 
-            if sim_metric.upper() in ['RSA', 'CKA']:
-                mean_B, std_B= sim_corrected_pooled_source_to_B(
-                    source_trials_list, 
-                    YB_trials, 
-                    metric=sim_metric,
-                    n_boot=n_boot, 
-                    seed=0
-                )
-
-            elif sim_metric.upper() == 'PLS':
-                med_B, std_B = pls_corrected_pooled_source_to_B(
-                    source_trials_list, 
-                    YB_trials, 
-                    n_components=25,
-                    n_splits=n_splits, 
-                    n_boot=n_boot, 
-                    seed=0
-                )
-
-            else:
-                raise ValueError(f'Unknown similarity metric: {sim_metric}. Choose from RSA, CKA, PLS.')
+            mean_B, std_B = pls_corrected_pooled_source_to_B(
+                source_trials_list, 
+                YB_trials,
+                n_components=n_components,
+                n_splits=n_splits,
+                n_boot=n_boot,
+                seed=0,
+            )
             
             consistency_list.append({
                 'Area': area,
                 'Target Specimen ID': B,
-                'Mean': mean_B if sim_metric.upper() in ['RSA', 'CKA'] else med_B,
+                'Mean': mean_B,
                 'Std': std_B
             })
 
     return pd.DataFrame(consistency_list)
 
-
-def compute_all_layer_scores(X_layers, index_df, sim_metric, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, chunk_size: int = 1000, n_components: int = 25, test_areas: list = None, test_layers: list = None):
+def compute_all_layer_scores(X_layers, index_df, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None):
 
     all_layer_scores_list = []
 
@@ -195,31 +149,15 @@ def compute_all_layer_scores(X_layers, index_df, sim_metric, n_boot: int = 100, 
                 
                 Y_trials = get_trials(index_df, B, area)  # (T, F, q)
 
-                if sim_metric in ['RSA', 'CKA']:
-                
-                    score, _ = sim_corrected_model_to_B(
-                        X_model, 
-                        Y_trials, 
-                        metric=sim_metric,
-                        n_boot=n_boot, 
-                        seed=0,
-                        chunk_size=chunk_size
-                    )
+                score, _ = pls_corrected_model_to_B(
+                    X_model, 
+                    Y_trials, 
+                    n_components=n_components,
+                    n_splits=n_splits,
+                    n_boot=n_boot,
+                    seed=0
+                )
                     
-                elif sim_metric == 'PLS':
-                    
-                    score, _ = pls_corrected_model_to_B(
-                        X_model, 
-                        Y_trials, 
-                        n_components=n_components,
-                        n_splits=n_splits,
-                        n_boot=n_boot,
-                        seed=0
-                    )
-
-                else:
-                    raise ValueError(f'Unknown similarity metric: {sim_metric}. Choose from RSA, CKA, PLS.')
-                
                 # Optional verbose logging
                 if verbose:
                     print(f"Layer: {layer_name}, Area: {area}, Specimen: {B}, Score: {score:.4f}")
@@ -234,12 +172,13 @@ def compute_all_layer_scores(X_layers, index_df, sim_metric, n_boot: int = 100, 
     return pd.DataFrame(all_layer_scores_list)
 
 
-def compute_area_scores(index_model, index_df, sim_metric, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, chunk_size: int = 30000, n_components: int = 25, test_areas: list = None, test_layers: list = None, model_name: str = 'ImageNet'):    
-    layer_scores = compute_all_layer_scores(index_model, index_df, sim_metric, n_boot=n_boot, n_splits=n_splits, verbose=verbose, chunk_size=chunk_size, n_components=n_components, test_areas=test_areas, test_layers=test_layers)
+def compute_area_scores(index_model, index_df, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None, save = False, model_name: str = 'ImageNet'):    
+    layer_scores = compute_all_layer_scores(index_model, index_df, n_boot=n_boot, n_splits=n_splits, verbose=verbose, n_components=n_components, test_areas=test_areas, test_layers=test_layers)
     median_scores = layer_scores.groupby(['area', 'layer'])['score'].median().reset_index()
     sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()
     median_scores = pd.merge(median_scores, sem_scores.rename(columns={'score': 'sem'}), on=['area', 'layer'])
     # save results in a file
-    layer_scores.to_pickle(f'layer_scores_{model_name}.pkl')
-    median_scores.to_pickle(f'median_scores_{model_name}.pkl')
+    if save:
+        layer_scores.to_pickle(f'layer_scores_{model_name}.pkl')
+        median_scores.to_pickle(f'median_scores_{model_name}.pkl')
     return layer_scores, median_scores

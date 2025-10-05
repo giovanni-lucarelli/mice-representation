@@ -9,11 +9,6 @@ from torchvision import transforms
 from torchvision.transforms.functional import to_tensor, get_dimensions, affine, normalize
 import numpy as np
 
-
-from .mouse_params import DEFAULT_ROLL_DEG, DEFAULT_TRANSLATE
-
-
-
 def default(var, val):
     """Return `val` when `var` is None, otherwise return `var`."""
     return val if var is None else var
@@ -205,69 +200,6 @@ class UnNormalize(nn.Module):
         else: ret = out
 
         return ret
-    
-class RandomImgAffine(transforms.RandomAffine):
-
-    def __init__(
-        self,
-        *args,
-        decline : bool = False,
-        generator : torch.Generator | None = None,
-        **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-
-        self.decline = decline
-        self.rng = generator
-
-    @torch.no_grad()
-    def forward(self, inp : Tensor | dict) -> Tensor | dict:
-        if self.decline: return inp
-
-        if isinstance(inp, dict):     imgs = inp['imgs']
-        elif isinstance(inp, Tensor): imgs = inp
-        else: raise TypeError(f'Unknown input type: {type(inp)}')
-
-        # * CODE TAKEN FROM RANDOMAFFINE DOC AT:
-        # http://pytorch.org/vision/main/_modules/torchvision/transforms/transforms.html#RandomAffine
-        fill = self.fill
-        channels, height, width = get_dimensions(imgs)
-        if isinstance(imgs, Tensor):
-            if isinstance(fill, (int, float)):
-                fill = [float(fill)] * channels
-            else:
-                fill = [float(f) for f in fill]
-
-        img_size = [width, height]  # flip for keeping BC on get_params call
-
-        par = self.get_params(self.degrees, self.translate, self.scale, self.shear, img_size)
-
-        out = affine(imgs, *par, interpolation=self.interpolation, fill=fill, center=self.center)
-
-        if isinstance(inp, dict):
-            ret = {**inp, 'imgs' : out, 'affine' : par}
-        else:
-            ret = {'imgs' : out, 'affine' : par}
-
-        return ret
-    
-    def get_params(self, *args):
-        # If a custom generator is provided, temporarily swap global RNG state
-        # so torchvision's get_params uses it, then restore the original state.
-        if self.rng is None:
-            return super().get_params(*args)
-
-        init_state = torch.get_rng_state()
-        try:
-            torch.set_rng_state(self.rng.get_state())
-            params = super().get_params(*args)
-            # Capture advanced state back into the custom generator
-            self.rng.set_state(torch.get_rng_state())
-        finally:
-            # Restore original global RNG state (do NOT reseed)
-            torch.set_rng_state(init_state)
-
-        return params
 
 class RgbToGray(nn.Module):
     def __init__(self, keep_channels: int = 3, weights: tuple = (0.2989, 0.5870, 0.1140), decline: bool = False) -> None:
@@ -327,10 +259,6 @@ def mouse_transform(
     to_gray: bool = True,
     gray_keep_channels: bool = True,
     train: bool = True,
-    # affine_rng: torch.Generator | None = None,
-    # apply_motion: bool = False,
-    # roll_deg: float = DEFAULT_ROLL_DEG,
-    # translate: Tuple[float, float] = DEFAULT_TRANSLATE,
     self_supervised: bool = False,
 ) -> transforms.Compose:
     """
@@ -352,17 +280,6 @@ def mouse_transform(
     else:
         ops.append(transforms.Resize(256))
         ops.append(transforms.CenterCrop(img_size))
-        
-    # if apply_motion:
-    #     ops.append(RandomImgAffine(
-    #         degrees=(-roll_deg, roll_deg),
-    #         translate=translate,
-    #         decline=False,
-    #         generator=affine_rng,
-    #         shear=None,
-    #         scale=None,
-    #         fill=0.5,
-    #     ))
 
     # Convert to grayscale before applying CSF blur so both operate on luminance
     if to_gray:
