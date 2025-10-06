@@ -108,7 +108,7 @@ def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components
 
     return pd.DataFrame(consistency_list)
 
-def compute_all_layer_scores(X_layers, index_df, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None):
+def compute_all_layer_scores(X_layers, index_df, n_boot: int = 1, n_splits: int = 1, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None):
 
     all_layer_scores_list = []
 
@@ -172,7 +172,7 @@ def compute_all_layer_scores(X_layers, index_df, n_boot: int = 100, n_splits: in
     return pd.DataFrame(all_layer_scores_list)
 
 
-def compute_area_scores(index_model, index_df, n_boot: int = 100, n_splits: int = 10, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None, save = False, model_name: str = 'ImageNet'):    
+def compute_area_scores(index_model, index_df, n_boot: int = 1, n_splits: int = 1, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None, save = False, model_name: str = 'ImageNet'):    
     layer_scores = compute_all_layer_scores(index_model, index_df, n_boot=n_boot, n_splits=n_splits, verbose=verbose, n_components=n_components, test_areas=test_areas, test_layers=test_layers)
     median_scores = layer_scores.groupby(['area', 'layer'])['score'].median().reset_index()
     sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()

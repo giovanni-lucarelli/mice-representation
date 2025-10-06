@@ -126,6 +126,17 @@ def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
     except Exception:
         layer_order = list(sorted(combined_scores['layer'].unique()))
 
+    # Define the order of visual areas according to the image: VISp, VISl, VISal, VISpm, VISrl, VISam
+    area_order = ['VISp', 'VISl', 'VISal', 'VISpm', 'VISrl', 'VISam']
+    
+    # Filter to only include areas that exist in the data and maintain the specified order
+    available_areas = combined_scores['area'].unique()
+    
+    area_order = [area for area in area_order if area in available_areas]
+    
+    if not area_order:
+        raise ValueError(f"No areas from the specified order found in data. Available areas: {sorted(available_areas)}")
+
     # Build a palette for the provided names
     colors = sns.color_palette("tab10", n_colors=n_models)
     palette_map = {name: color for name, color in zip(names, colors)}
@@ -134,6 +145,7 @@ def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
     g = sns.FacetGrid(
         combined_scores,
         col="area",
+        col_order=area_order,
         hue="model",
         col_wrap=3,
         height=4,

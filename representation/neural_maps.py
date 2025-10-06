@@ -1,6 +1,8 @@
 from __future__ import annotations
 import random
+import warnings
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.exceptions import ConvergenceWarning
 from metrics import spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
 import numpy as np
 import math
@@ -53,8 +55,10 @@ def pls_corrected_single_source_to_B(
             max_nc = min(Xtr1.shape[0], Xtr1.shape[1])   # = min(n_train, p)
             nc = max(1, min(n_components, max_nc))
 
-            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
-            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
+                m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
 
             Yhat1 = m1.predict(Xte1)  # (n_test, q)
             Yhat2 = m2.predict(Xte2)
@@ -65,9 +69,11 @@ def pls_corrected_single_source_to_B(
                 # num = 0.5*(_corr(Yhat1[:,j], Yte2[:,j]) + _corr(Yhat2[:,j], Yte1[:,j]))  # simmetrico
                 map_rel = spearman_brown(_corr(Yhat1[:,j], Yhat2[:,j]))
                 tar_rel = spearman_brown(_corr(Yte1[:,j],  Yte2[:,j]))
-                denom = math.sqrt(map_rel * tar_rel)
-                if np.isfinite(num) and denom > 0:
-                    ssum[j] += (num / denom); cnt[j] += 1
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    denom = np.sqrt(map_rel * tar_rel)
+                # if np.isfinite(num) and np.isfinite(denom) and denom > 0:
+                ssum[j] += (num / denom); cnt[j] += 1
 
         # media su bootstrap (per unità)
         with np.errstate(invalid='ignore', divide='ignore'):
@@ -156,8 +162,10 @@ def pls_corrected_model_to_B(
             Yte2 = YB_trials[hB2_buffer][:, test_idx].mean(axis=0)
 
             # fit two independent PLS models (one per half)
-            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr1)
-            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr1)
+                m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr, Ytr2)
 
             Yhat1 = m1.predict(Xte)  # (n_test, q)
             Yhat2 = m2.predict(Xte)
@@ -182,11 +190,13 @@ def pls_corrected_model_to_B(
             spearman_brown_vectorized_inplace(map_corrs, map_rel)
             spearman_brown_vectorized_inplace(tar_corrs, tar_rel)
             np.multiply(map_rel, tar_rel, out=denom)
-            np.sqrt(denom, out=denom)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                np.sqrt(denom, out=denom)
 
             # MEMORY OPTIMIZATION: Vectorized accumulation with pre-allocated mask
             np.isfinite(num, out=valid_mask)
-            valid_mask &= (denom > 0)
+            # valid_mask &= np.isfinite(denom) & (denom > 0)
             
             # In-place accumulation
             temp = np.empty_like(ssum)
@@ -245,8 +255,10 @@ def pls_corrected_pooled_source_to_B(
             # Fit two independent PLS maps
             max_nc = min(Xtr1.shape[0], Xtr1.shape[1])  # = min(n_train, p_pool)
             nc = max(1, min(n_components, max_nc))
-            m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
-            m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                m1 = PLSRegression(n_components=nc, scale=False).fit(Xtr1, Ytr1)
+                m2 = PLSRegression(n_components=nc, scale=False).fit(Xtr2, Ytr2)
 
             Yhat1 = m1.predict(Xte1)  # (n_test, q)
             Yhat2 = m2.predict(Xte2)
@@ -256,10 +268,12 @@ def pls_corrected_pooled_source_to_B(
                 num = _corr(Yhat1[:, j], Yte2[:, j])  # cross-half numerator
                 map_rel = spearman_brown(_corr(Yhat1[:, j], Yhat2[:, j]))
                 tar_rel = spearman_brown(_corr(Yte1[:, j],  Yte2[:, j]))
-                denom = math.sqrt(map_rel * tar_rel)
-                if np.isfinite(num) and denom > 0:
-                    ssum[j] += num / denom
-                    cnt[j]  += 1
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    denom = np.sqrt(map_rel * tar_rel)
+                # if np.isfinite(num) and np.isfinite(denom) and denom > 0:
+                ssum[j] += num / denom
+                cnt[j]  += 1
 
         per_split.append(np.where(cnt > 0, ssum / np.maximum(cnt, 1), np.nan))
 

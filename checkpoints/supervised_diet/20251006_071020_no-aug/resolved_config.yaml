@@ -54,4 +54,4 @@ experiment:
     blur: true
     noise: true
 root: /home/spina/Desktop/units/DL/project
-run_dir: /home/spina/Desktop/units/DL/project/mice-representation/checkpoints/supervised_diet/20250930_022201_no-aug
+run_dir: /home/spina/Desktop/units/DL/project/mice-representation-clean/checkpoints/supervised_diet/20251006_071020_no-aug

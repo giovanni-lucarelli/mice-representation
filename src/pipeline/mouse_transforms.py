@@ -267,21 +267,26 @@ def mouse_transform(
     """
     
     ops = []
-
+    
     if train:
         if self_supervised:
             ops.append(transforms.RandomResizedCrop(img_size, scale = (0.2, 1.0)))
-            ops.append(transforms.RandomGrayscale(p=0.2))
-            ops.append(transforms.ColorJitter(0.4, 0.4, 0.4, 0.4))
+            # Random grayscale and color jitter only if not converting to grayscale
+            if not to_gray:
+                ops.append(transforms.RandomGrayscale(p=0.2))
+                ops.append(transforms.ColorJitter(0.4, 0.4, 0.4, 0.4))
         else:
             ops.append(transforms.RandomResizedCrop(img_size))
             
         ops.append(transforms.RandomHorizontalFlip())
     else:
-        ops.append(transforms.Resize(256))
+        ops.append(transforms.Resize(img_size))
         ops.append(transforms.CenterCrop(img_size))
+        
+    # Convert to tensor before blur to ensure tensor-based GaussianBlur
+    ops.append(ToTensor())
 
-    # Convert to grayscale before applying CSF blur so both operate on luminance
+    # Grayscale before blur/noise so they operate on luminance
     if to_gray:
         ops.append(RgbToGray(keep_channels=3 if gray_keep_channels else 1))
 
@@ -289,9 +294,6 @@ def mouse_transform(
         # Dynamic kernel size to cover ~±3σ
         k_dyn = int(2 * ceil(3.0 * float(blur_sig))) + 1 if (blur_sig is not None and blur_sig > 0) else 1
         ops.append(GaussianBlur(kernel_size=k_dyn, sigma=blur_sig, decline=(blur_sig is None or blur_sig <= 0)))
-
-    # Always convert to tensor before noise/normalization
-    ops.append(ToTensor())
 
     if apply_noise:
         ops.append(GaussianNoise(std=noise_std, mono=True, decline=(noise_std is None or noise_std <= 0), generator=noise_rng))

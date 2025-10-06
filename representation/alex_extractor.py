@@ -47,11 +47,31 @@ class AlexNetFeatureExtractor(nn.Module):
     Conv layers are GAP-pooled to vectors.
     Exposes: 'conv1','conv2','conv3','conv4','conv5','fc6','fc7','fc8'
     """
-    # Layer mapping to match mouse-vision AlexNetBN exactly: features.3, features.7, features.10, features.13, features.17, classifier.3, classifier.7
-    # Mouse-vision extracts: conv2(3), pool2(7), conv3(10), conv4(13), pool5(17), fc6(3), fc7(7)
-    # Map to equivalent layers in standard AlexNet:
-    CONV_IDX = {'conv1': 0, 'conv2': 3, 'conv3': 6, 'conv4': 8, 'conv5': 10}
-    FC_IDX   = {'fc6': 1, 'fc7': 4, 'fc8': 6}  # classifier.1=fc6, classifier.4=fc7
+    # CONV_IDX = {
+    #     'conv1': 0,
+    #     'conv2': 3,
+    #     'conv3': 6,
+    #     'conv4': 8,
+    #     'conv5': 10,
+    # }
+    # FC_IDX   = {
+    #     'fc6': 1,
+    #     'fc7': 4,
+    #     'fc8': 6,
+    # }  # classifier.1=fc6, classifier.4=fc7
+    
+    # mapping equivalente ai punti mouse-vision usando torchvision AlexNet
+    CONV_IDX = {  # nome libero, ma qui includiamo anche pool/relu per chiarezza
+        'pool1': 2,    # features.2  (≈ mouse features.3)
+        'pool2': 5,    # features.5  (≈ mouse features.7)
+        'relu3': 7,    # features.7  (≈ mouse features.10)
+        'relu4': 9,    # features.9  (≈ mouse features.13)
+        'pool5': 12,   # features.12 (≈ mouse features.17)
+    }
+    FC_IDX = {
+        'fc6_relu': 2,  # classifier.2 (≈ mouse classifier.3)
+        'fc7_relu': 5,  # classifier.5 (≈ mouse classifier.7)
+    }
 
     def __init__(self, weights: Union[str, dict] = 'imagenet', device: str = 'cpu'):
         super().__init__()
@@ -88,6 +108,8 @@ class AlexNetFeatureExtractor(nn.Module):
         self.preprocess = transforms.Compose([
             transforms.Resize(64),
             transforms.CenterCrop(64),
+            # transforms.Resize(256),
+            # transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
         ])
