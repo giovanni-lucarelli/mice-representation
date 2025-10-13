@@ -5,7 +5,23 @@ import pandas as pd
 import numpy as np
 
 AREANAME = {'VISp':'V1','VISl':'LM','VISal':'AL','VISrl':'RL','VISam':'AM','VISpm':'PM'}
-ROOT_DIR = '../Preproc2'  # keep relative to your repo; no trailing slash is fine
+# Resolve default ROOT_DIR to the project root's Preproc2 directory
+ROOT_DIR = str((Path(__file__).resolve().parents[1] / 'Preproc2').resolve())
+
+# Lightweight wrapper around tqdm so callers can opt-in to progress bars
+try:
+    from tqdm import tqdm as _tqdm  # type: ignore
+except Exception:
+    def _tqdm(iterable=None, total=None, disable=False, **kwargs):
+        return iterable
+
+def maybe_tqdm(iterable, enable: bool = False, total: int | None = None, **kwargs):
+    """
+    Wrap an iterable with tqdm when enable=True; otherwise return the iterable unchanged.
+    """
+    if not enable:
+        return iterable
+    return _tqdm(iterable, total=total, **kwargs)
 
 def load_index(index_csv_path):
     p = Path(index_csv_path).resolve()
@@ -60,12 +76,17 @@ def get_trials(index_df, spec_id, area, *, root_dir: str | os.PathLike | None = 
     candidates = []
     base_dir = index_df.attrs.get("base_dir")
     if base_dir:
-        candidates.append(Path(base_dir))
+        b = Path(base_dir)
+        # Try index directory itself and its parents (to cover indexes that use paths like 'data/...')
+        candidates.append(b)
+        candidates.append(b.parent)
+        candidates.append(b.parent.parent)
     if root_dir is not None:
         candidates.append(Path(root_dir))
     env_root = os.environ.get("DATA_ROOT")
     if env_root:
-        candidates.append(Path(env_root))
+        e = Path(env_root)
+        candidates.append(e)
 
     # Resolve absolute or try each base candidate
     resolved = p if p.is_absolute() else next((b / p for b in candidates if (b / p).exists()), None)

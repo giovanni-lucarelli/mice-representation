@@ -1,0 +1,57 @@
+project:
+  paths:
+    log_dir: log
+    checkpoint_base_dir: checkpoints
+    artifacts_dir: artifacts
+    root: .
+  data_sources:
+    mini_imagenet_path: ~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1
+  allen_data:
+    neuropixels_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl
+    calcium_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_calcium_visual_data_with_reliabilities.pkl
+experiment:
+  data:
+    data_path: ~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1
+    image_size: 224
+    batch_size: 256
+    num_workers: 15
+    train_split: 0.7
+    val_split: 0.15
+    split_seed: 42
+  train:
+    num_epochs: 100
+    dropout_rate: 0.3
+    early_stopping_patience: 15
+    self_supervised: false
+    checkpoint_sub_dir: supervised_no-diet
+    optimizer:
+      name: SGD
+      params:
+        lr: 0.03
+        momentum: 0.9
+        weight_decay: 0.0001
+    scheduler:
+      name: MultiStepLR
+      params:
+        milestones:
+        - 25
+        - 50
+        - 75
+        gamma: 0.2
+    loss:
+      name: CrossEntropyLoss
+      params:
+        label_smoothing: 0.1
+    save_every_n: 10
+  device:
+    device: auto
+    use_cuda: true
+    seed: 42
+  logging:
+    level: INFO
+  diet:
+    grayscale: false
+    blur: false
+    noise: false
+root: /home/spina/Desktop/units/DL/project
+run_dir: /home/spina/Desktop/units/DL/project/mice-representation-clean/checkpoints/supervised_no-diet/sgd-correct-no-aug

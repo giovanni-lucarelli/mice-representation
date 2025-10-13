@@ -3,9 +3,10 @@ import random
 import warnings
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.exceptions import ConvergenceWarning
-from metrics import spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
+from .metrics import spearman_brown, spearman_brown_vectorized_inplace, _corr, _corr_vectorized_inplace
 import numpy as np
 import math
+from .utils import maybe_tqdm
 
 def _make_image_splits(n_images, n_splits=10, seed=0):
     rng = random.Random(seed)
@@ -18,7 +19,14 @@ def _make_image_splits(n_images, n_splits=10, seed=0):
     return splits
 
 def pls_corrected_single_source_to_B(
-    XA_trials, YB_trials, n_components=25, n_splits=10, n_boot=100, seed=0, min_half_trials=3
+    XA_trials,
+    YB_trials,
+    n_components=25,
+    n_splits=10,
+    n_boot=100,
+    seed=0,
+    min_half_trials=3,
+    progress: bool = False,
 ):
     rng = random.Random(seed)
     TA, F, p = XA_trials.shape
@@ -27,11 +35,11 @@ def pls_corrected_single_source_to_B(
     splits = _make_image_splits(F, n_splits=n_splits, seed=seed)
 
     per_split = []  # ognuno è (q,) score per unità
-    for train_idx, test_idx in splits:
+    for train_idx, test_idx in maybe_tqdm(splits, enable=progress, total=len(splits), desc="PLS splits", leave=False):
         # accumulatori per media su bootstrap
         ssum = np.zeros(q, float); cnt = np.zeros(q, int)
 
-        for _ in range(n_boot):
+        for _ in maybe_tqdm(range(n_boot), enable=progress, total=n_boot, desc="PLS bootstrap", leave=False):
             # split dei trial
             idxA = list(range(TA)); rng.shuffle(idxA)
             idxB = list(range(TB)); rng.shuffle(idxB)
@@ -72,7 +80,8 @@ def pls_corrected_single_source_to_B(
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", RuntimeWarning)
                     denom = np.sqrt(map_rel * tar_rel)
-                # if np.isfinite(num) and np.isfinite(denom) and denom > 0:
+                # if np.isfinite(num) and np.isfinite(denom) and denom > 0: # keep commented, explained below
+                # let's propagate NaN values if denom is infinite or zero (as Nayebi)
                 ssum[j] += (num / denom); cnt[j] += 1
 
         # media su bootstrap (per unità)
@@ -93,6 +102,7 @@ def pls_corrected_model_to_B(
     seed=0,
     min_half_trials=3,
     symmetric_num=False,  # if True, average num over both cross-halves
+    progress: bool = False,
 ):
     """
     MEMORY-OPTIMIZED: Paper-style corrected predictivity for PLS, model→animal B.
@@ -103,7 +113,7 @@ def pls_corrected_model_to_B(
     - Optimize memory layout for cache performance
     - Reduce garbage collection pressure
     """
-    rng = random.Random(seed)
+    rng = np.random.default_rng(seed)
     F, p = X_model.shape
     TB, F2, q = YB_trials.shape
     assert F == F2, "Image count/order mismatch between model and neural target."
@@ -131,7 +141,7 @@ def pls_corrected_model_to_B(
     denom = np.empty(q, dtype=float)
     valid_mask = np.empty(q, dtype=bool)
 
-    for split_idx, (train_idx, test_idx) in enumerate(splits):
+    for split_idx, (train_idx, test_idx) in enumerate(maybe_tqdm(splits, enable=progress, total=len(splits), desc="PLS splits", leave=False)):
         Xtr = X_model[train_idx]   # (n_train, p)
         Xte = X_model[test_idx]    # (n_test,  p)
 
@@ -143,7 +153,7 @@ def pls_corrected_model_to_B(
         ssum = np.zeros(q, dtype=float)
         cnt  = np.zeros(q, dtype=int)
 
-        for _ in range(n_boot):
+        for _ in maybe_tqdm(range(n_boot), enable=progress, total=n_boot, desc="PLS bootstrap", leave=False):
             # MEMORY OPTIMIZATION: Reuse pre-allocated buffers
             np.copyto(idxB_buffer, np.arange(TB))
             rng.shuffle(idxB_buffer)
@@ -196,10 +206,13 @@ def pls_corrected_model_to_B(
 
             # MEMORY OPTIMIZATION: Vectorized accumulation with pre-allocated mask
             np.isfinite(num, out=valid_mask)
-            # valid_mask &= np.isfinite(denom) & (denom > 0)
+            # valid_mask &= np.isfinite(denom) & (denom > 0) # keep commented, explained below
+            # let's propagate NaN values if denom is infinite or zero (as Nayebi)
             
             # In-place accumulation
-            temp = np.empty_like(ssum)
+            temp = np.zeros_like(ssum)
+            # previously here there was temp = np.empty_like(ssum), bug (?)
+            
             np.divide(num, denom, out=temp, where=valid_mask)
             ssum += temp
             cnt += valid_mask.astype(int)
@@ -222,17 +235,18 @@ def pls_corrected_pooled_source_to_B(
     n_splits=10,
     n_boot=100,
     seed=0,
-    min_half_trials=3):
+    min_half_trials=3,
+    progress: bool = False):
     
     rng = random.Random(seed)
     TB, F, q = YB_trials.shape
     splits = _make_image_splits(F, n_splits=n_splits, seed=seed)
 
     per_split = []  # each: (q,) per-unit scores
-    for train_idx, test_idx in splits:
+    for train_idx, test_idx in maybe_tqdm(splits, enable=progress, total=len(splits), desc="PLS splits", leave=False):
         ssum = np.zeros(q, float); cnt = np.zeros(q, int)
 
-        for _ in range(n_boot):
+        for _ in maybe_tqdm(range(n_boot), enable=progress, total=n_boot, desc="PLS bootstrap", leave=False):
             # Build pooled source halves for this bootstrap + split
             pooled = _pooled_halves_sources(
                 source_trials_list, train_idx, test_idx, rng=rng,
@@ -271,7 +285,8 @@ def pls_corrected_pooled_source_to_B(
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", RuntimeWarning)
                     denom = np.sqrt(map_rel * tar_rel)
-                # if np.isfinite(num) and np.isfinite(denom) and denom > 0:
+                # if np.isfinite(num) and np.isfinite(denom) and denom > 0: # keep commented, explained below
+                # let's propagate NaN values if denom is infinite or zero (as Nayebi)
                 ssum[j] += num / denom
                 cnt[j]  += 1
 

@@ -207,9 +207,9 @@ def ensure_dirs(resolved: ResolvedConfig, suffix: str = "") -> Dict[str, Path]:
     paths = resolved.project.paths
     base_run_dir = resolved.run_dir
     # timestamped subfolder per run
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     suffix_clean = suffix.strip()
-    name = f"{ts}_{suffix_clean}" if suffix_clean else ts
+    name = f"{suffix_clean}"
     run_dir = (base_run_dir / name).resolve()
     # reflect change into resolved object
     resolved.run_dir = run_dir

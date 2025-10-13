@@ -10,6 +10,7 @@ from torchvision import transforms
 import glob
 from torch.utils.data import Dataset, DataLoader
 import os, re, glob
+from .utils import maybe_tqdm
 
 
 def _natural_key(s: str):
@@ -60,8 +61,8 @@ class AlexNetFeatureExtractor(nn.Module):
     #     'fc8': 6,
     # }  # classifier.1=fc6, classifier.4=fc7
     
-    # mapping equivalente ai punti mouse-vision usando torchvision AlexNet
-    CONV_IDX = {  # nome libero, ma qui includiamo anche pool/relu per chiarezza
+    # equivalent mapping to mouse-vision using torchvision AlexNet
+    CONV_IDX = {
         'pool1': 2,    # features.2  (≈ mouse features.3)
         'pool2': 5,    # features.5  (≈ mouse features.7)
         'relu3': 7,    # features.7  (≈ mouse features.10)
@@ -106,10 +107,10 @@ class AlexNetFeatureExtractor(nn.Module):
         self._register_hooks()
 
         self.preprocess = transforms.Compose([
-            transforms.Resize(64),
-            transforms.CenterCrop(64),
-            # transforms.Resize(256),
-            # transforms.CenterCrop(224),
+            # transforms.Resize(64),
+            # transforms.CenterCrop(64),
+            transforms.Resize(224),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
         ])
@@ -219,7 +220,8 @@ def build_alexnet_design_matrices_with_dataloader(
         stores[layer][0:n0] = warm[layer]
 
     filled = n0
-    for batch in it:
+    total_batches = int(np.ceil((F - n0) / float(batch_size))) if F > n0 else 0
+    for batch in maybe_tqdm(it, enable=kwargs_for_extractor_fn.get("progress", False), total=total_batches, desc="AlexNet batches"):
         out = extractor.forward_batch(batch, amp=amp)
         n = out[next(iter(out))].shape[0]
         for layer in layers_keep:

@@ -91,7 +91,7 @@ def plot_comparison(median_scores_random, median_scores_inet, metric_name):
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
-def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
+def plot_comparison_multi(scores_list, names=None, metric_name='PLS', sharey=False):
     """
     Plot a metriccomparison across multiple models.
 
@@ -141,6 +141,11 @@ def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
     colors = sns.color_palette("tab10", n_colors=n_models)
     palette_map = {name: color for name, color in zip(names, colors)}
 
+    # Compute global y-limits (min and max) for all subplots
+    if sharey:
+        y_min = (combined_scores['score'] - combined_scores['sem']).min()
+        y_max = (combined_scores['score'] + combined_scores['sem']).max()
+
     # Create a FacetGrid to generate a plot for each area, with different colors for each model
     g = sns.FacetGrid(
         combined_scores,
@@ -153,6 +158,11 @@ def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
         sharey=False,
         palette=palette_map
     )
+
+    # Set the same y-limits for all axes
+    if sharey:
+        for ax in g.axes.flatten():
+            ax.set_ylim(y_min, y_max)
 
     # Define a function to plot the line and the ribbon
     def plot_with_ribbon(data, **kwargs):
@@ -187,7 +197,7 @@ def plot_comparison_multi(scores_list, names=None, metric_name='PLS'):
     plt.show()
 
 
-def find_checkpoint_files(checkpoint_dir: str) -> List[Tuple[str, int]]:
+def find_checkpoint_files(checkpoint_dir: str, epochs: list[int]) -> List[Tuple[str, int]]:
     """
     Find all checkpoint files in a directory and extract epoch numbers.
     
@@ -214,14 +224,15 @@ def find_checkpoint_files(checkpoint_dir: str) -> List[Tuple[str, int]]:
             # Explicitly skip best_model from sweeps
             continue
         if pth_file.name.startswith("checkpoint_epoch_"):
-            # Extract epoch number from filename
-            try:
-                epoch_str = pth_file.name.replace("checkpoint_epoch_", "").replace(".pth", "")
-                epoch = int(epoch_str)
-                checkpoint_files.append((str(pth_file), epoch))
-            except ValueError:
-                print(f"Warning: Could not parse epoch from {pth_file}")
-                continue
+            if any(str(epoch) in pth_file.name for epoch in epochs):
+                # Extract epoch number from filename
+                try:
+                    epoch_str = pth_file.name.replace("checkpoint_epoch_", "").replace(".pth", "")
+                    epoch = int(epoch_str)
+                    checkpoint_files.append((str(pth_file), epoch))
+                except ValueError:
+                    print(f"Warning: Could not parse epoch from {pth_file}")
+                    continue
     
     # Sort by epoch number
     checkpoint_files.sort(key=lambda x: x[1])
@@ -232,31 +243,27 @@ def analyze_checkpoints(
     checkpoint_dir: str,
     image_folder: str,
     index_csv_path: str,
-    metric: str = "PLS",
     layers_keep: Optional[List[str]] = None,
     batch_size: int = 16,
     num_workers: int = 12,
     device: str = "cuda",
     save: bool = True,
     save_dir: Optional[str] = None,
-    chunk_size: int = 30000,
     n_boot: int = 5,
     n_splits: int = 5,
     n_components: int = 25,
+    epochs: list[int] = [30, 50, 70],
 ):
     """
     Minimal checkpoint sweep with tqdm prints.
     Returns (all_scores, median_scores, best_info).
     """
-    from alex_extractor import build_alexnet_design_matrices_with_dataloader
-    from mapping import compute_area_scores
-    from utils import load_index
-
-    if layers_keep is None:
-        layers_keep = ["conv1", "conv2", "conv3", "conv4", "conv5"]
+    from .alex_extractor import build_alexnet_design_matrices_with_dataloader
+    from .mapping import compute_area_scores
+    from .utils import load_index
 
     ckpt_dir = resolve_checkpoint_path(checkpoint_dir)
-    ckpts = find_checkpoint_files(ckpt_dir)
+    ckpts = find_checkpoint_files(ckpt_dir, epochs)
     if not ckpts:
         raise ValueError(f"No checkpoints in {ckpt_dir}")
 
@@ -283,7 +290,7 @@ def analyze_checkpoints(
                 save_dir=save_dir,
                 return_in_memory=False,
             )
-            layer_scores, med = compute_area_scores(mats, index_df, metric, chunk_size=chunk_size, n_boot=n_boot, n_splits=n_splits, n_components=n_components)
+            layer_scores, med = compute_area_scores(mats, index_df, n_boot=n_boot, n_splits=n_splits, n_components=n_components)
             layer_scores = layer_scores.assign(checkpoint=Path(path).name, epoch=epoch)
             med = med.assign(checkpoint=Path(path).name, epoch=epoch)
             per_ckpt.append((layer_scores, med, epoch, path))

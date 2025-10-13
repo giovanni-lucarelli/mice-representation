@@ -1,0 +1,27 @@
+data:
+  data_path: "./Preproc2/images/"
+  batch_size: 256
+  num_workers: 15
+
+pls:
+  n_boot: 5
+  n_splits: 5
+  n_components: 100
+  layers_keep:
+    - "pool1"
+    - "pool2"
+    - "relu3"
+    - "relu4"
+    - "pool5"
+    - "fc6_relu"
+    - "fc7_relu"
+  # If relative, saved under run_dir/artifacts/
+  results_dir: "pls"
+  index_csv: "./Preproc2/data/combined_index.csv"
+
+models:
+  random: "random"
+  supervised_no-diet: "checkpoints/supervised_no-diet/sgd-correct-no-aug/checkpoint_epoch_60.pth"
+  supervised_diet: "checkpoints/supervised_diet/sgd-correct-no-aug/checkpoint_epoch_60.pth"
+  self_supervised_no-diet: "checkpoints/self-supervised_no-diet/warmup+dynamic-correct/checkpoint_epoch_60.pth"
+  self_supervised_diet: "checkpoints/self-supervised_diet/warmup+dynamic-correct/checkpoint_epoch_60.pth"

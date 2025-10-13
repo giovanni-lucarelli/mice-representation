@@ -45,6 +45,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    
+    if args.augmentations == "False":
+        print("Augmentations are disabled")
 
     resolved, flat = load_and_resolve_configs(
         project_yaml=args.project_config,

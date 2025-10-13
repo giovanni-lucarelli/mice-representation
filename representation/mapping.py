@@ -3,26 +3,26 @@ import numpy as np
 import pandas as pd
 import itertools
 
-from utils import get_areas, get_specimen_ids, get_trials
-from neural_maps import (
+from .utils import get_areas, get_specimen_ids, get_trials, maybe_tqdm
+from .neural_maps import (
     pls_corrected_single_source_to_B,
     pls_corrected_pooled_source_to_B,
     pls_corrected_model_to_B,
 )
 
-from utils import load_memmap
+from .utils import load_memmap
 import os
 
-def consistency_across_trials(index_df):
+def consistency_across_trials(index_df, *, progress: bool = False):
     '''
     Consistency across trials within the same area and same specimen ID (each with itself).
     '''
     consistency_list = []
     
-    for area in get_areas(index_df):
+    for area in maybe_tqdm(get_areas(index_df), enable=progress, desc="Areas"):
         specimen_ids = get_specimen_ids(index_df, area)
         
-        for specimen_id in specimen_ids:
+        for specimen_id in maybe_tqdm(specimen_ids, enable=progress, desc=f"Specimens {area}", leave=False):
             sid_trials = get_trials(index_df, specimen_id, area)
 
             sim_sid_mean, sim_sid_std = pls_corrected_single_source_to_B(
@@ -30,7 +30,8 @@ def consistency_across_trials(index_df):
                 sid_trials,
                 n_components=25,
                 n_boot=100,
-                seed=0
+                seed=0,
+                progress=progress,
             )
 
             consistency_list.append({
@@ -43,16 +44,16 @@ def consistency_across_trials(index_df):
     return pd.DataFrame(consistency_list)
 
 
-def interanimal_consistency_1v1(index_df, n_boot=100, n_splits=10, n_components=25):
+def interanimal_consistency_1v1(index_df, n_boot=100, n_splits=10, n_components=25, *, progress: bool = False):
     '''    
     Compute inter-animal consistency for each area.
     '''
     consistency_list = []
     
-    for area in get_areas(index_df):
+    for area in maybe_tqdm(get_areas(index_df), enable=progress, desc="Areas"):
         specimen_ids = get_specimen_ids(index_df, area)
 
-        for spec_id1, spec_id2 in itertools.combinations(specimen_ids, 2):
+        for spec_id1, spec_id2 in maybe_tqdm(list(itertools.combinations(specimen_ids, 2)), enable=progress, desc=f"Pairs {area}", leave=False):
             trials_s1 = get_trials(index_df, spec_id1, area)
             trials_s2 = get_trials(index_df, spec_id2, area)
 
@@ -62,7 +63,8 @@ def interanimal_consistency_1v1(index_df, n_boot=100, n_splits=10, n_components=
                 n_components=n_components,
                 n_boot=n_boot,
                 n_splits=n_splits,
-                seed=0
+                seed=0,
+                progress=progress,
             )
 
             consistency_list.append({
@@ -75,16 +77,16 @@ def interanimal_consistency_1v1(index_df, n_boot=100, n_splits=10, n_components=
 
     return pd.DataFrame(consistency_list)
 
-def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components=25):
+def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components=25, *, progress: bool = False):
     """
     Compute inter-animal consistency for each area, using pooled-source approach.
     """
 
     consistency_list = []
 
-    for area in get_areas(index_df):
+    for area in maybe_tqdm(get_areas(index_df), enable=progress, desc="Areas"):
         spec_ids = get_specimen_ids(index_df, area)
-        for B in spec_ids:
+        for B in maybe_tqdm(spec_ids, enable=progress, desc=f"Targets {area}", leave=False):
             # source list (A != B)
             sources = [s for s in spec_ids if s != B]
             source_trials_list = [get_trials(index_df, s, area) for s in sources]  # [(Ti, F, pi), ...]
@@ -97,6 +99,7 @@ def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components
                 n_splits=n_splits,
                 n_boot=n_boot,
                 seed=0,
+                progress=progress,
             )
             
             consistency_list.append({
@@ -108,11 +111,21 @@ def interanimal_consistency_pool(index_df, n_boot=100, n_splits=10, n_components
 
     return pd.DataFrame(consistency_list)
 
-def compute_all_layer_scores(X_layers, index_df, n_boot: int = 1, n_splits: int = 1, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None):
+def compute_all_layer_scores(
+    X_layers, index_df, 
+    n_boot: int = 1,
+    n_splits: int = 1, 
+    verbose: bool = False, 
+    n_components: int = 25, 
+    test_areas: list = None, 
+    test_layers: list = None,
+    *,
+    progress: bool = False,
+):
 
     all_layer_scores_list = []
 
-    for layer_name, layer_path in X_layers.items():
+    for layer_name, layer_path in maybe_tqdm(list(X_layers.items()), enable=progress, desc="Layers"):
         
         # Skip layers not in test_layers if specified
         if test_layers is not None and layer_name not in test_layers:
@@ -142,10 +155,10 @@ def compute_all_layer_scores(X_layers, index_df, n_boot: int = 1, n_splits: int 
             if verbose:
                 print(f"Filtered areas: {areas}")
         
-        for area in areas:
+        for area in maybe_tqdm(areas, enable=progress, desc="Areas", leave=False):
             spec_ids = get_specimen_ids(index_df, area)
             
-            for B in spec_ids:
+            for B in maybe_tqdm(spec_ids, enable=progress, desc=f"Specimens {area}", leave=False):
                 
                 Y_trials = get_trials(index_df, B, area)  # (T, F, q)
 
@@ -155,7 +168,8 @@ def compute_all_layer_scores(X_layers, index_df, n_boot: int = 1, n_splits: int 
                     n_components=n_components,
                     n_splits=n_splits,
                     n_boot=n_boot,
-                    seed=0
+                    seed=0,
+                    progress=progress,
                 )
                     
                 # Optional verbose logging
@@ -171,14 +185,29 @@ def compute_all_layer_scores(X_layers, index_df, n_boot: int = 1, n_splits: int 
 
     return pd.DataFrame(all_layer_scores_list)
 
+def compute_area_scores(
+    index_model, 
+    index_df, 
+    n_boot: int = 1, 
+    n_splits: int = 1, 
+    verbose: bool = False, 
+    n_components: int = 25, 
+    test_areas: list = None, 
+    test_layers: list = None, 
+    save = True, 
+    model_name: str = 'ImageNet',
+    save_dir: str = 'artifacts',
+    progress: bool = True): 
 
-def compute_area_scores(index_model, index_df, n_boot: int = 1, n_splits: int = 1, verbose: bool = False, n_components: int = 25, test_areas: list = None, test_layers: list = None, save = False, model_name: str = 'ImageNet'):    
-    layer_scores = compute_all_layer_scores(index_model, index_df, n_boot=n_boot, n_splits=n_splits, verbose=verbose, n_components=n_components, test_areas=test_areas, test_layers=test_layers)
+
+    layer_scores = compute_all_layer_scores(index_model, index_df, n_boot=n_boot, n_splits=n_splits, verbose=verbose, n_components=n_components, test_areas=test_areas, test_layers=test_layers, progress=progress)
     median_scores = layer_scores.groupby(['area', 'layer'])['score'].median().reset_index()
     sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()
     median_scores = pd.merge(median_scores, sem_scores.rename(columns={'score': 'sem'}), on=['area', 'layer'])
+    
     # save results in a file
     if save:
-        layer_scores.to_pickle(f'layer_scores_{model_name}.pkl')
-        median_scores.to_pickle(f'median_scores_{model_name}.pkl')
+        os.makedirs(save_dir, exist_ok=True)
+        layer_scores.to_csv(f'{save_dir}/layer_scores_{model_name}.csv')
+        median_scores.to_csv(f'{save_dir}/median_scores_{model_name}.csv')
     return layer_scores, median_scores

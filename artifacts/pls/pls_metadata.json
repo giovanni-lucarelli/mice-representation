@@ -1,0 +1,23 @@
+{
+    "timestamp": "2025-10-10 18:04:37",
+    "models": {
+        "random": "random",
+        "supervised_no-diet": "checkpoints/supervised_no-diet/sgd-correct-no-aug/checkpoint_epoch_60.pth",
+        "supervised_diet": "checkpoints/supervised_diet/sgd-correct-no-aug/checkpoint_epoch_60.pth",
+        "self_supervised_no-diet": "checkpoints/self-supervised_no-diet/warmup+dynamic-correct/checkpoint_epoch_60.pth",
+        "self_supervised_diet": "checkpoints/self-supervised_diet/warmup+dynamic-correct/checkpoint_epoch_60.pth"
+    },
+    "layers_keep": [
+        "pool1",
+        "pool2",
+        "relu3",
+        "relu4",
+        "pool5",
+        "fc6_relu",
+        "fc7_relu"
+    ],
+    "pls_n_components": 100,
+    "n_boot": 5,
+    "n_splits": 5,
+    "results_dir": "/home/spina/Desktop/units/DL/project/mice-representation-clean/artifacts/pls"
+}

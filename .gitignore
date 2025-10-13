@@ -2,6 +2,7 @@
 __pycache__/
 AllenData/
 *backup*
+*old*
 alex-matrices-*/
 
 # comment to save checkpoints
