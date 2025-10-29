@@ -89,7 +89,8 @@ def pls_corrected_single_source_to_B(
             per_split.append(np.where(cnt>0, ssum/np.maximum(cnt,1), np.nan))
 
     # media sui 10 split -> vettore (q,)
-    per_unit = np.nanmean(np.vstack(per_split), axis=0)
+    per_unit = np.mean(np.vstack(per_split), axis=0)
+    # per_unit = np.nanmean(np.vstack(per_split), axis=0) it was originally
     # aggregato finale (paper): mediana su unità
     return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
@@ -222,7 +223,8 @@ def pls_corrected_model_to_B(
         per_split[split_idx, valid_cnt] = ssum[valid_cnt] / cnt[valid_cnt]
 
     # MEMORY OPTIMIZATION: Use pre-allocated arrays for final computation
-    per_unit = np.nanmean(per_split, axis=0)  # (q,)
+    per_unit = np.mean(per_split, axis=0)  # (q,)
+    # per_unit = np.nanmean(per_split, axis=0) it was originally
     return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
 # -------------------------------------------------------
@@ -292,7 +294,8 @@ def pls_corrected_pooled_source_to_B(
 
         per_split.append(np.where(cnt > 0, ssum / np.maximum(cnt, 1), np.nan))
 
-    per_unit = np.nanmean(np.vstack(per_split), axis=0)  # (q,)
+    per_unit = np.mean(np.vstack(per_split), axis=0)  # (q,)
+    # per_unit = np.nanmean(np.vstack(per_split), axis=0) it was originally
     return float(np.nanmedian(per_unit)), float(np.nanstd(per_unit))
 
 def _pooled_halves_sources(source_trials_list, train_idx=None, test_idx=None,

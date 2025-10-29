@@ -69,9 +69,7 @@ def main() -> None:
         overrides=args.__dict__.get("set", []),
     )
 
-    # Create run directories (even if PLS will save under project artifacts)
-    dirs = ensure_dirs(resolved)
-    flat["run_dir"] = dirs["run_dir"].as_posix()
+    # Skip creating training run directories; PLS uses project-level artifacts
 
     # Set up device and seed
     seed_everything(args.seed)
@@ -113,9 +111,13 @@ def main() -> None:
     else:
         results_dir = (project_artifacts_base / "pls").resolve()
 
-    # Ensure results dir exists and save the fully resolved config there
+    # Ensure results dir exists and prepare run_dir to point to the PLS results
     os.makedirs(results_dir.as_posix(), exist_ok=True)
+    resolved.run_dir = results_dir
+    dirs = ensure_dirs(resolved)
     resolved_config_path = results_dir / "resolved_config.yaml"
+    # Reflect the effective run_dir
+    flat["run_dir"] = dirs["run_dir"].as_posix()
     save_resolved_config(flat, resolved_config_path)
     print(f"Resolved config saved to: {resolved_config_path}")
 

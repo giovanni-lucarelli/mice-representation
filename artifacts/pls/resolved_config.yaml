@@ -51,4 +51,4 @@ experiment:
     blur: false
     noise: false
 root: /home/spina/Desktop/units/DL/project
-run_dir: /home/spina/Desktop/units/DL/project/mice-representation-clean/artifacts
+run_dir: /home/spina/Desktop/units/DL/project/mice-representation-clean/artifacts/pls
