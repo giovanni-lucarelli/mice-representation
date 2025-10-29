@@ -1,0 +1,13 @@
+paths:
+  root: .
+  log_dir: log
+  checkpoint_base_dir: checkpoints/berta
+  artifacts_dir: artifacts
+
+data_sources:
+  data_path: "path/to/inet/berta"
+
+# don't needed on berta
+# allen_data:
+#   neuropixels_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl
+#   calcium_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_calcium_visual_data_with_reliabilities.pkl

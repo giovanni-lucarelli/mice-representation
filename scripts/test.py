@@ -15,8 +15,10 @@ from src.config import (
     select_device,
 )
 
+from src.pipeline.mouse_transforms import mouse_transform
 from src.datasets.DataManager import DataManager
-from src.model.trainer import Trainer
+from src.model.supervised_trainer import SupervisedTrainer
+from src.model.ir_trainer import InstanceDiscriminationTrainer
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +57,15 @@ def main() -> None:
 
     # Data manager (evaluation transforms only)
     data_cfg = resolved.experiment.data
+    eval_transform = mouse_transform(
+        img_size=224,
+        blur_sig=1.76,
+        noise_std=0.25,
+        to_gray=resolved.experiment.diet.grayscale,
+        apply_blur=resolved.experiment.diet.blur,
+        apply_noise=resolved.experiment.diet.noise,
+        train=False,
+    )
     dm = DataManager(
         data_path=str((resolved.root / Path(data_cfg.data_path)).resolve())
         if not Path(os.path.expanduser(str(data_cfg.data_path))).is_absolute()
@@ -65,6 +76,9 @@ def main() -> None:
         val_split=float(data_cfg.val_split),
         split_seed=int(data_cfg.split_seed),
         use_cuda=resolved.experiment.device.use_cuda,
+        persistent_workers=bool(data_cfg.persistent_workers),
+        prefetch_factor=int(data_cfg.prefetch_factor),
+        eval_transform=eval_transform,
     )
     dm.setup()
 
@@ -75,7 +89,11 @@ def main() -> None:
     scheduler_params = dict(getattr(train_cfg.scheduler, "params", {}) or {})
     loss_params = dict(getattr(train_cfg.loss, "params", {}) or {})
 
-    model = Trainer(
+    # Pick trainer based on self_supervised flag
+    self_supervised = bool(train_cfg.self_supervised)
+    TrainerClass = InstanceDiscriminationTrainer if self_supervised else SupervisedTrainer
+
+    model = TrainerClass(
         data_manager=dm,
         num_epochs=int(train_cfg.num_epochs),
         dropout_rate=float(train_cfg.dropout_rate),
@@ -85,12 +103,13 @@ def main() -> None:
         artifacts_dir=dirs["artifacts_dir"],
         use_cuda=resolved.experiment.device.use_cuda,
         save_every_n=int(train_cfg.save_every_n),
-        loss=train_cfg.loss.name,
-        loss_params=loss_params,
         optimizer=train_cfg.optimizer.name,
         optimizer_params=opt_params,
         scheduler=train_cfg.scheduler.name,
         scheduler_params=scheduler_params,
+        loss=train_cfg.loss.name,
+        loss_params=loss_params,
+        autocast=bool(train_cfg.autocast),
     )
 
     # Load checkpoint
@@ -123,6 +142,17 @@ def main() -> None:
             except Exception:
                 ckpt_path = candidate.as_posix()
     model.load_model(ckpt_path)
+
+    # For self-supervised evaluation, warm up memory bank to compute NN accuracy
+    if self_supervised:
+        try:
+            warmup_epochs = int(getattr(train_cfg.loss, "params", {}).get("warmup_epochs", 1))
+        except Exception:
+            warmup_epochs = 1
+        try:
+            model._warmup_memory_bank(warmup_epochs)
+        except Exception:
+            pass
 
     # Evaluate on test set
     test_loss, test_acc = model.test()

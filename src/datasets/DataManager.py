@@ -60,6 +60,8 @@ class DataManager():
                  val_split      : float                         = 0.15,
                  split_seed     : int                           = 42,
                  use_cuda       : bool                          = True,
+                 persistent_workers: bool                       = True,
+                 prefetch_factor: int                          = 4,
                  return_indices : bool                          = False):
         """Initialize manager configuration and default transforms.
 
@@ -76,6 +78,8 @@ class DataManager():
         self.val_split = val_split
         self.split_seed = split_seed
         self.use_cuda = use_cuda
+        self.persistent_workers = persistent_workers
+        self.prefetch_factor = prefetch_factor
         self.return_indices = return_indices
         
         if train_transform is None:
@@ -129,6 +133,8 @@ class DataManager():
         # Dataset info
         self.num_classes    : Optional[int]             = None
         
+    #? ------------------------ Load data ------------------------- #
+        
     def load_data(self):
         """Create base MiniImageNet dataset and populate class metadata."""
         if not self.data_path.exists():
@@ -163,28 +169,73 @@ class DataManager():
             verbose=False,
         )
         return AsTupleDataset(ds)
+    
+    #? ------------------------ Split data ------------------------- #
         
     def split_data(self):
         """Create train/val/test datasets: use predefined splits when available, else stratified split."""
 
-        if self._base_dataset is None:
-            raise ValueError("Dataset not loaded. Call load_data() first.")
+        # ---------------------- Use predefined splits, if any ---------------------- #
+        if self._has_predefined_splits() and not self.return_indices:
+            print("Using predefined dataset splits (ImageFolder).")
+            train_path = self.data_path / "train"
+            val_path = self.data_path / "val"
+            if not val_path.exists():
+                val_path = self.data_path / "validation"  # Common alternative name
+            test_path = self.data_path / "test"
 
-        # if not self.return_indices and there are predefined splits, use them
-        if not self.return_indices and self._has_predefined_splits():
-            print("Using predefined dataset splits (train/val/test)")
-            self.train_dataset = self._make_split_dataset("train", self.train_transform)
-            self.val_dataset = self._make_split_dataset("val", self.eval_transform)
-            self.test_dataset = self._make_split_dataset("test", self.eval_transform)
+            self.train_dataset = ImageFolder(root=train_path, transform=self.train_transform)
 
-            print(f"Train dataset: {len(self.train_dataset)} samples")
-            print(f"Val dataset: {len(self.val_dataset)} samples")
-            print(f"Test dataset: {len(self.test_dataset)} samples")
+            has_val = val_path.exists()
+            has_test = test_path.exists()
+
+            if has_val and has_test:
+                self.val_dataset = ImageFolder(root=val_path, transform=self.eval_transform)
+                self.test_dataset = ImageFolder(root=test_path, transform=self.eval_transform)
+            elif has_val and not has_test:
+                print("Warning: No 'test' directory found. Splitting 'val' set for validation and testing.")
+                original_val_set = ImageFolder(root=val_path, transform=self.eval_transform)
+                val_indices = list(range(len(original_val_set)))
+                try:
+                    val_split_indices, test_split_indices = train_test_split(
+                        val_indices, test_size=0.5, stratify=original_val_set.targets, random_state=self.split_seed
+                    )
+                except ValueError:
+                    val_split_indices, test_split_indices = train_test_split(
+                        val_indices, test_size=0.5, random_state=self.split_seed
+                    )
+                self.val_dataset = Subset(original_val_set, val_split_indices)
+                self.test_dataset = Subset(original_val_set, test_split_indices)
+            elif not has_val and has_test:
+                print("Warning: No 'val' directory found. Splitting 'test' set for validation and testing.")
+                original_test_set = ImageFolder(root=test_path, transform=self.eval_transform)
+                test_indices = list(range(len(original_test_set)))
+                try:
+                    val_split_indices, test_split_indices = train_test_split(
+                        test_indices, test_size=0.5, stratify=original_test_set.targets, random_state=self.split_seed
+                    )
+                except ValueError:
+                    val_split_indices, test_split_indices = train_test_split(
+                        test_indices, test_size=0.5, random_state=self.split_seed
+                    )
+                self.val_dataset = Subset(original_test_set, val_split_indices)
+                self.test_dataset = Subset(original_test_set, test_split_indices)
+
+            # Set base dataset attributes from the train set for consistency
+            self._base_dataset = self.train_dataset
+            self.dataset = self._base_dataset
+            self.num_classes = len(self._base_dataset.classes)
+
+            print(f"Train dataset: {len(self.train_dataset)} samples, {self.num_classes} classes")
+            if self.val_dataset: print(f"Val dataset: {len(self.val_dataset)} samples")
+            if self.test_dataset: print(f"Test dataset: {len(self.test_dataset)} samples")
             return
         
-        # if self.return_indices, create val/test as splits of the train set to keep class mapping consistent
-
-        print(f"Splitting dataset into train, val, and test sets")
+        # ------------------------- Fallback to manual stratified split ------------------------- #
+        # Datasets without predefined splits or for self-supervised mode (for mapping consistency)
+        print("No predefined splits found or self-supervised mode is active. Splitting from a single dataset.\nIf you are using ImageNet, this may be a problem.")
+        if self._base_dataset is None:
+            self.load_data()
 
         indices = list(range(len(self._base_dataset)))
 
@@ -220,6 +271,8 @@ class DataManager():
         random.seed(worker_seed)
         _np.random.seed(worker_seed)
         torch.manual_seed(worker_seed)
+        
+    #? ------------------------ Create loaders ------------------------- #
 
     def create_loaders(self):
         """Instantiate PyTorch `DataLoader`s with safe defaults.
@@ -230,9 +283,9 @@ class DataManager():
         """
         use_cuda = self.use_cuda and torch.cuda.is_available()
         pin = use_cuda
-        effective_workers = min(self.num_workers, int(os.environ.get("NUM_WORKERS_OVERRIDE", "8")))
-        persistent = False
-        prefetch = int(os.environ.get("PREFETCH_FACTOR", "4")) if effective_workers > 0 else None
+        effective_workers = self.num_workers
+        persistent = self.persistent_workers
+        prefetch = self.prefetch_factor if effective_workers > 0 else None
 
         if self.train_dataset is None or self.val_dataset is None or self.test_dataset is None:
             raise ValueError("Train, val, and test datasets not provided")

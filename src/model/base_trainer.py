@@ -35,6 +35,7 @@ class BaseTrainer():
                  scheduler_params: Optional[dict]                       = None,
                  loss           : Optional[str]                         = "CrossEntropyLoss",
                  loss_params    : Optional[Dict[str, Any]]             = None,
+                 autocast       : bool                                  = True,
              ):
         self.model          : Optional[torch.nn.Module]                 = model
         self.data_manager   : Optional[DataManager]                     = data_manager
@@ -51,6 +52,7 @@ class BaseTrainer():
         self.optimizer      : str                                       = optimizer
         self.loss           : Optional[str]                             = loss
         self.loss_params    : Optional[Dict[str, Any]]                  = loss_params
+        self.use_autocast   : bool                                      = autocast
         # Cache originals so we can re-init per train() call
         self._scheduler_name = scheduler
         self._scheduler_params_template: Dict[str, Any] = deepcopy(scheduler_params) if isinstance(scheduler_params, dict) else {}

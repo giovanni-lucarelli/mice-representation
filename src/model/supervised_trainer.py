@@ -18,13 +18,16 @@ class SupervisedTrainer(BaseTrainer):
         progress_bar = tqdm(self.train_loader, desc=f"Training Epoch {epoch+1}", leave=False)
 
         for batch_idx, (images, labels) in enumerate(progress_bar):
+            # Move images to device, async transfer for performance.
             images = images.to(self.device, non_blocking=True)
+            # Use channels_last memory format to speed up convolutions on NVIDIA GPUs.
             if self.device.type == 'cuda':
                 images = images.contiguous(memory_format=torch.channels_last)
+            # Move labels to device, async transfer.
             labels = labels.to(self.device, non_blocking=True)
 
             # Mixed precision training
-            with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
+            with autocast(device_type=self.device.type, enabled=self.use_autocast and self.device.type == 'cuda'):
                 outputs = self.model(images)
                 loss = self.loss(outputs, labels)
 
@@ -68,7 +71,7 @@ class SupervisedTrainer(BaseTrainer):
                     images = images.contiguous(memory_format=torch.channels_last)
                 labels = labels.to(self.device, non_blocking=True)
 
-                with autocast(device_type=self.device.type, enabled=self.device.type == 'cuda'):
+                with autocast(device_type=self.device.type, enabled=self.use_autocast and self.device.type == 'cuda'):
                     outputs = self.model(images)
                     loss = self.loss(outputs, labels)
 

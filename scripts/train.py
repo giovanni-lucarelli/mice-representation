@@ -26,7 +26,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train model with YAML configs")
     p.add_argument("--project-config", type=str, default="configs/project.yaml")
     p.add_argument("--config", type=str, required=True, help="Experiment YAML file")
-    p.add_argument("--augmentations", type=str, default="True", help="Whether to use augmentations")
+    p.add_argument(
+        "--augmentations",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable augmentations",
+    )
     p.add_argument(
         "--set",
         type=str,
@@ -46,7 +51,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     
-    if args.augmentations == "False":
+    if not args.augmentations:
         print("Augmentations are disabled")
 
     resolved, flat = load_and_resolve_configs(
@@ -74,7 +79,7 @@ def main() -> None:
         to_gray = resolved.experiment.diet.grayscale,
         apply_blur = resolved.experiment.diet.blur,
         apply_noise = resolved.experiment.diet.noise,
-        train = args.augmentations, #True, # enables augmentation
+        train = bool(args.augmentations),
         # apply_motion = False,
         self_supervised = resolved.experiment.train.self_supervised,
     )
@@ -106,6 +111,8 @@ def main() -> None:
         val_split=float(data_cfg.val_split),
         split_seed=int(data_cfg.split_seed),
         use_cuda=resolved.experiment.device.use_cuda,
+        persistent_workers=bool(data_cfg.persistent_workers),
+        prefetch_factor=int(data_cfg.prefetch_factor),
         train_transform=train_transform,
         eval_transform=eval_transform,
         return_indices=self_supervised,
@@ -144,6 +151,7 @@ def main() -> None:
         scheduler_params=scheduler_params,
         loss=train_cfg.loss.name,
         loss_params=loss_params,
+        autocast=bool(train_cfg.autocast),
     )
 
     history = model.train()

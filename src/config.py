@@ -24,7 +24,7 @@ class PathsConfig:
 
 @dataclass
 class DataSourcesConfig:
-    mini_imagenet_path: str = "~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1"
+    data_path: str = "~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1"
 
 
 @dataclass
@@ -50,6 +50,8 @@ class TrainDataConfig:
     train_split: float = 0.7
     val_split: float = 0.15
     split_seed: int = 42
+    persistent_workers: bool = True
+    prefetch_factor: int = 4
 
 
 @dataclass
@@ -92,6 +94,7 @@ class TrainCoreConfig:
     dropout_rate: float = 0.3
     early_stopping_patience: int = 15
     self_supervised: bool = False
+    autocast: bool = True
     checkpoint_sub_dir: str = "default"
     optimizer: TrainOptimizerConfig = field(default_factory=TrainOptimizerConfig)
     scheduler: TrainSchedulerConfig = field(default_factory=TrainSchedulerConfig)
@@ -174,7 +177,7 @@ def load_and_resolve_configs(
         exp_dict["data"] = {}
     data_block = exp_dict["data"]
     if "data_path" not in data_block or data_block["data_path"] in (None, ""):
-        data_block["data_path"] = project.data_sources.mini_imagenet_path
+        data_block["data_path"] = project.data_sources.data_path
 
     experiment = _dict_to_dataclass(exp_dict, ExperimentConfig)
 

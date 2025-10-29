@@ -5,7 +5,7 @@ paths:
   artifacts_dir: artifacts
 
 data_sources:
-  mini_imagenet_path: ~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1
+  data_path: ~/.cache/kagglehub/datasets/arjunashok33/miniimagenet/versions/1
 
 allen_data:
   neuropixels_url: https://mouse-vision-neuraldata.s3.amazonaws.com/mouse_neuropixels_visual_data_with_reliabilities.pkl
