@@ -3,6 +3,23 @@ from typing import Optional, Dict
 from pathlib import Path
 import numpy as np
 from .mouse_params import PATCH_SIZE
+import seaborn as sns
+
+# 1) colori base per famiglia
+FAMILY_COLORS = {
+    "Random":       "#4B0082",
+    "Target":       sns.color_palette("tab10")[0],
+    "No_Diet":      sns.color_palette("tab10")[2],
+    "Optimized":      sns.color_palette("tab10")[1],
+}
+
+# 2) ordine delle condizioni dentro la famiglia
+def get_model_color(model_name: str, idx = 0, size = 1):
+    base = FAMILY_COLORS[model_name]
+
+    # genera tante sfumature quante condizioni possibili
+    shades = sns.light_palette(base, size + 1, reverse=True).as_hex()[:-1]
+    return shades[idx]
 
 def tensor_to_display_np(x):
     """
@@ -65,26 +82,34 @@ def plot_image_pair(img_left, img_right, title_left: str = 'Original', title_rig
     plt.show()
     return fig, ax
 
-def plot_csf_thresholds(sf_list, thresholds_dict, target_dict):
+def plot_csf_thresholds(sfs, curves_data, target_dict):
     """
     Plot CSF thresholds vs spatial frequency (log-log), matching the notebook style.
-    thresholds_dict: {sf -> threshold}
-    target_dict: {sf -> target_threshold}
+    sfs: list of spatial frequencies to plot.
+    curves_data: dict of {label: {sf -> threshold}} for simulated curves.
+    target_dict: {sf -> target_threshold} for the reference mouse data.
     """
     try:
         import matplotlib.pyplot as plt
+        import itertools
     except Exception as e:
         raise RuntimeError("Matplotlib is required for plotting.") from e
 
-    sf = np.array(list(sf_list), dtype=float)
-    thr_sim = np.array([float(thresholds_dict[s]) for s in sf_list], dtype=float)
-    thr_target = np.array([float(target_dict[s]) for s in sf_list], dtype=float)
+    sf_vals = np.array(list(sfs), dtype=float)
+    thr_target = np.array([float(target_dict[s]) for s in sfs], dtype=float)
 
-    plt.figure(figsize=(6, 4))
-    plt.loglog(sf, 1.0 / thr_target, 'o--', label='Target (mouse data)')
-    plt.loglog(sf, 1.0 / thr_sim, 's-', label='Simulated (this pipeline)')
+    plt.figure(figsize=(6, 6))
+    plt.loglog(sf_vals, 1.0 / thr_target, 'o--', label='Target (behavioural CSF)', color=get_model_color("Target"))
+    
+    markers = itertools.cycle(['s', 'D', '^', 'v', 'p', '*', 'h'])
+
+    for label, (thresholds, color) in curves_data.items():
+        thr_sim = np.array([float(thresholds[s]) for s in sfs], dtype=float)
+        marker = next(markers)
+        plt.loglog(sf_vals, 1.0 / thr_sim, f'{marker}-', label=label, color=color)
+
     plt.xlabel('Spatial frequency (cycles/deg)')
-    plt.ylabel('Contrast threshold (Michelson)')
+    plt.ylabel('1 / Contrast threshold')
     plt.title('Mouse CSF: Threshold vs Spatial Frequency (log-log)')
     plt.grid(True, which='both', ls='--', alpha=0.3)
     plt.legend()
@@ -95,21 +120,30 @@ def plot_psychometric_curves(curves_dict, sfs_to_plot=None, threshold_criterion:
     """
     Plot psychometric curves (% correct vs contrast) for selected SFs.
     curves_dict: {sf -> (contrasts, accuracies)}
+    palette: list of color codes or a matplotlib colormap name (optional).
     """
     try:
         import matplotlib.pyplot as plt
+        import matplotlib.cm as cm
+        import numpy as np
     except Exception as e:
         raise RuntimeError("Matplotlib is required for plotting.") from e
 
     if sfs_to_plot is None:
         sfs_to_plot = list(curves_dict.keys())
 
+    # Use different intensities/shades of the same color (e.g., blue)
+    import matplotlib.colors as mcolors
+    base_color = 'coral'
+    colors = [mcolors.to_rgba(base_color, alpha=1.0 - i * 0.15) for i in range(len(sfs_to_plot))]
+
     plt.figure(figsize=(6, 4))
-    for sf in sfs_to_plot:
+    for idx, sf in enumerate(sfs_to_plot):
         c, a = curves_dict[sf]
-        plt.plot(c, 100 * np.array(a), '-o', label=f'{sf:.2f} cpd')
+        color = colors[idx % len(colors)] if colors is not None else None
+        plt.plot(c, 100 * np.array(a), '-o', label=f'{sf:.2f} cpd', color=color)
     plt.axhline(threshold_criterion * 100, color='k', ls='--', lw=1, label=f'{int(threshold_criterion * 100)}% criterion')
-    plt.xlabel('Contrast (Michelson)')
+    plt.xlabel('Contrast')
     plt.ylabel('Percent correct (%)')
     plt.title('Psychometric curves across spatial frequencies')
     plt.grid(True, alpha=0.3)
