@@ -121,14 +121,3 @@ checkpoints/
 ```bash
 python scripts/scale_history_plots.py --experiments supervised_no-diet supervised_diet --latest-only --max-loss 4.0 --max-acc 100
 ```
-
-
-## References
-
-- [Unraveling the complexity of rat object vision requires a full convolutional network and beyond](https://www.sciencedirect.com/science/article/pii/S2666389924003210)
-
-- [BrainScore](https://www.brain-score.org/)
-
-- [A large-scale examination of inductive biases shaping high-level visual representation in brains and machines](https://www.nature.com/articles/s41467-024-53147-y)
-
-- [Mouse visual cortex as a limited resource system that self-learns an ecologically-general representation](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1011506)
