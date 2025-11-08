@@ -23,3 +23,6 @@ alex-matrices-*/
 *.gz
 *.toc
 *.xml
+.fls
+.out
+.fdb_latexmk

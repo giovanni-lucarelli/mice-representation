@@ -13,24 +13,32 @@ We then fix this CSF-matched preprocessing as an ``artificial retina" and feed t
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{image/psycho.jpeg}
+    \includegraphics[width=0.68\textwidth]{image/psycho.png}
+    \vspace{-0.5em}
     \caption{Psychometric curves are shown for different spatial frequencies. The intersection between the fitted psychometric curve and the 75\% accuracy criterion is the threshold contrast chosen for the CSF.}
     \label{fig:psychometrics}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{image/csf.jpeg}
+    \includegraphics[width=0.8\textwidth]{image/csf.jpeg}
     \caption{ The contrast sensitivity function (CSF) measured for mice by Prusky et al. \cite{PRUSKY20043411} (blue line) is shown along the CSFs obtained for a simulated
     observer, measuring the contrast of input images in small patches with different blur and noise parameters.}
     \label{fig:csf}
 \end{figure}
+
+\vspace{2em}
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.7\textwidth]{image/mouseimg.png}
-    \caption{Example image after the "artificial mouse retina" preprocessing.}
+    \includegraphics[width=0.75\textwidth]{image/mouseimg_2.png}
+    \caption{
+        Illustration of an ImageNet sample after applying the optimized ``artificial retina'' preprocessing. 
+        The image has been transformed with a Gaussian blur ($\sigma = 0.176$) and additive Gaussian noise ($\sigma = 0.250$) to match the mouse contrast sensitivity function, as determined by the simulated psychophysical task (see \cref{fig:csf}).
+    }
     \label{fig:mouseimg}
 \end{figure}
+
+\newpage
 
 \subsection{Signal Processing}
 \paragraph{Allen Brain Neuropixels Visual Coding}
@@ -122,17 +130,14 @@ The procedure is repeated over 100 random trial partitions, and the final pooled
 \subsubsection{Neural predictivity}
 
 The similarity between AlexNet activations and the neuropixel responses has been computes analogously to what introduced above. 
-
 Specifically, for each layer $l$ of the convolutional network and $(s,a)$ specimen-are pair, we can define
-
 $$
 \text{RSA}^{(s,a,l)} = \text{Corr}(\text{RDM}^{(s,a)}, \text{RDM}^{(\text{AlexNet}, l)})
 $$
 
+\vspace{-0.5em}
 and 
-
 $$
 \text{RSA}_\text{corrected}^{(s,a,l)} = \frac{\text{RSA}^{(s,a,l)}}{\sqrt{\text{reliability}(s,a)}}
 $$
-
 where $\text{reliability}(\text{AlexNet}, l)=1$ for all layers $l$.

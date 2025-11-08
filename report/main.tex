@@ -14,23 +14,46 @@
 % \setmonofont{Libertinus Mono}
 
 \usepackage{xcolor}
+
+\definecolor{blue(munsell)}{rgb}{0.0, 0.5, 0.69}
+
 \hypersetup{
     colorlinks = true,
     linktoc = all,
-    allcolors = {black},
+    linkcolor = black,
+    citecolor = black,
+    urlcolor  = blue(munsell),
 }
 
 \geometry{
     a4paper,
-    top=2.5cm,
-    bottom=2.5cm,
-    left=3cm,
-    right=3cm
+    top=2.3cm,
+    bottom=2.3cm,
+    left=2.5cm,
+    right=2.5cm
 }
 
 \title{\textbf{Mouse Visual Cortex Modelling}\\[1em]The impact of a tailored data diet on the internal representations of CNNs}
 \author{Giacomo Amerio, Giovanni Lucarelli, Andrea Spinelli}
 \date{}
+
+\makeatletter
+\renewcommand{\maketitle}{
+    \begin{center}
+        \centering
+        {\LARGE \@title\par}
+        
+        \vspace{2em}
+        
+        {\large \@author\par}
+        
+        \vspace{2em}
+        
+        \href{https://github.com/giovanni-lucarelli/mice-representation}{\texttt{github.com/mice-representation}}
+    \end{center}
+    \vspace{2em}
+}
+\makeatother
 
 \begin{document}
 

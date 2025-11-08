@@ -1,20 +1,39 @@
+\vspace{-0.3em}
+
 \section{Results}
+
+\vspace{-0.5em}
 
 \subsection{Data diet impact}
 
+\vspace{-0.3em}
+
 In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and for each convolutional layer of AlexNet. We can see that the RSA score is higher in the case of data diet both at training and inference time. At training time means that all the ImageNet dataset have been preprocessed with our ``mouse-like'' pipeline, whereas at inference time means that the pipeline has been applyed to the same Allen Brain \textit{stimuli} that the mice saw.
 
-Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worser score with respect to the untrained one. One possible explanation for this is that those layers of AlexNet are different from the biological mice brain, hence they do not provide a good model for the mice signals, at least in those areas.
-One possible explanation for the lower RSA score on the first convutional layer is that the diet (gaussian blur and noise) may negatively affect the first convolutional filters that are usually responsible for fundamental patterns, present \textit{somehow} in the mouse visual cortex.
-
 \begin{figure}[H]
-    \includegraphics[width=\textwidth]{./image/res0.jpeg}
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/res0.jpeg}
+
+    \vspace{-0.5em}
     \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:rsa-qualitative}
 \end{figure}
 
+
+Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worse score with respect to the untrained one. 
+
+**
+A possible explanation for this is that those layers of AlexNet are different from the biological mice brain, hence they do not provide a good model for the mice signals, at least in those areas. 
+For what concerns the first convolutional layer, the diet (gaussian blur and noise) may negatively affect the first convolutional filters that are usually responsible for fundamental patterns, present \textit{somehow} in the mouse visual cortex.
+**
+
+\vspace{-0.8em}
+
 \begin{figure}[H]
-    \includegraphics[width=\textwidth]{./image/res0_delta.jpeg}
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/res0_delta.jpeg}
+
+    \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:rsa-vsrandom}
 \end{figure}
@@ -26,7 +45,9 @@ Decoupling the diet at train and inference time we can observe that we have simi
 
 
 \begin{figure}[H]
-    \includegraphics[width=\textwidth]{./image/res-inference.jpeg}
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/res-inference.jpeg}
+    \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:inference}
 \end{figure}
@@ -38,7 +59,9 @@ Since we observed that the main effect of the diet is at inference time we decid
 As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score, analogously to our data diet. This means that the up-down scaling procedure may acts like a proxy for the mice vision system. Remarkably this diet provide the best predictivity for the first convolutional layer, hence that \texttt{conv1} benefcts from this procedure.
 
 \begin{figure}[H]
-    \includegraphics[width=\textwidth]{./image/res-nayebi.jpeg}
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/res-nayebi.jpeg}
+    \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{lighter blue} the model trained withoud data diet but with Nayebi's diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:nayebi}
 \end{figure}
@@ -50,7 +73,9 @@ From \cref{fig:random} we can observe an interesting behaviour: the untraied mod
 \textbf{Remark:} the random diet has been defined with one random value for gaussian blur and gaussian noise therefore is not a robust measure but only a preliminary result. It requires further investigations.
 
 \begin{figure}[H]
-    \includegraphics[width=\textwidth]{./image/res-random.jpeg}
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/res-random.jpeg}
+    \vspace{-1em}
     \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
     \label{fig:random}
 \end{figure}
