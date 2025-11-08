@@ -10,7 +10,7 @@ from torchvision.transforms.functional import to_tensor, get_dimensions, affine,
 import numpy as np
 
 
-from mouse_params import DEFAULT_ROLL_DEG, DEFAULT_TRANSLATE
+from .mouse_params import DEFAULT_ROLL_DEG, DEFAULT_TRANSLATE
 
 
 

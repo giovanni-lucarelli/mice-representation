@@ -1,7 +1,7 @@
 from __future__ import annotations
 import random
 from sklearn.cross_decomposition import PLSRegression
-from metrics import cka_linear, rsa_pearson, spearman_brown, _corr
+from .metrics import cka_linear, rsa_pearson, spearman_brown, _corr
 import numpy as np
 import math
 

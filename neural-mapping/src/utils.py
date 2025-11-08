@@ -32,7 +32,7 @@ def find_repo_root(start: str | Path | None = None) -> Path | None:
 from pathlib import Path
 import os
 
-ROOT_DIR = '../PreprocData'  # keep relative to your repo; no trailing slash is fine
+ROOT_DIR = '../allen-data-clean'  # keep relative to your repo; no trailing slash is fine
 
 def get_trials(index_df, spec_id, area, *, root_dir: str | os.PathLike | None = ROOT_DIR):
     def _norm_area(a):

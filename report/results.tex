@@ -1,0 +1,56 @@
+\section{Results}
+
+\subsection{Data diet impact}
+
+In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and for each convolutional layer of AlexNet. We can see that the RSA score is higher in the case of data diet both at training and inference time. At training time means that all the ImageNet dataset have been preprocessed with our ``mouse-like'' pipeline, whereas at inference time means that the pipeline has been applyed to the same Allen Brain \textit{stimuli} that the mice saw.
+
+Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worser score with respect to the untrained one. One possible explanation for this is that those layers of AlexNet are different from the biological mice brain, hence they do not provide a good model for the mice signals, at least in those areas.
+One possible explanation for the lower RSA score on the first convutional layer is that the diet (gaussian blur and noise) may negatively affect the first convolutional filters that are usually responsible for fundamental patterns, present \textit{somehow} in the mouse visual cortex.
+
+\begin{figure}[H]
+    \includegraphics[width=\textwidth]{./image/res0.jpeg}
+    \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
+    \label{fig:rsa-qualitative}
+\end{figure}
+
+\begin{figure}[H]
+    \includegraphics[width=\textwidth]{./image/res0_delta.jpeg}
+    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
+    \label{fig:rsa-vsrandom}
+\end{figure}
+
+\subsection{Inference time impact of the diet}
+
+\paragraph{Inference time diet} 
+Decoupling the diet at train and inference time we can observe that we have similiar results also for the model trained on ImageNet dataset without the diet but with data diet at inference time (on Allen stimuli). From this result we can conclude that the diet at training time doesn't have a decisive impact on the neural predictivity (\cref{fig:inference}).
+
+
+\begin{figure}[H]
+    \includegraphics[width=\textwidth]{./image/res-inference.jpeg}
+    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
+    \label{fig:inference}
+\end{figure}
+
+\paragraph{Nayebi diet impact}
+
+Since we observed that the main effect of the diet is at inference time we decided to explore another data diet, analogous to the one selected by Nayebi \cite{nayebi} as the optimal one. It has been defined as a rescaling of the stimuli to $64\times64$ followed with an upscaling to $224\times224$ (in order to match AlexNet input layer).
+
+As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score, analogously to our data diet. This means that the up-down scaling procedure may acts like a proxy for the mice vision system. Remarkably this diet provide the best predictivity for the first convolutional layer, hence that \texttt{conv1} benefcts from this procedure.
+
+\begin{figure}[H]
+    \includegraphics[width=\textwidth]{./image/res-nayebi.jpeg}
+    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{lighter blue} the model trained withoud data diet but with Nayebi's diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
+    \label{fig:nayebi}
+\end{figure}
+
+\paragraph{Random diet impact}
+
+From \cref{fig:random} we can observe an interesting behaviour: the untraied model with no diet (at inference time) is the one that leads to the highest RSA score in all areas and layers, whereas all the other diets affects negatively the score. This is in contrast with what as been observed on the trained models, that benefits from the diet.
+
+\textbf{Remark:} the random diet has been defined with one random value for gaussian blur and gaussian noise therefore is not a robust measure but only a preliminary result. It requires further investigations.
+
+\begin{figure}[H]
+    \includegraphics[width=\textwidth]{./image/res-random.jpeg}
+    \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
+    \label{fig:random}
+\end{figure}

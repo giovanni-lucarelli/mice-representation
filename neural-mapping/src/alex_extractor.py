@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 
 from math import ceil
-from mouse_transforms import RgbToGray, GaussianBlur, GaussianNoise
+from .mouse_transforms import RgbToGray, GaussianBlur, GaussianNoise
 
 
 def _natural_key(s: str):

@@ -1,0 +1,138 @@
+\newpage
+
+\section{Methods}
+\subsection{Data Diet}
+
+
+A fair comparison between mouse visual perception and convolutional neural networks (CNNs) should respect the ecological limits of the mouse visual system, especially its limited spatial resolution. Mice have a low visual acuity; behaviorally measured constrast sensitivity functions (CSFs) show a band-pass profile that peaks at \approx 0.2 cycles per degree \cite{PRUSKY20043411}. The CSF quantifies the inverse contrast required to detect sinusoidal gratigs at each spatial frequency, summarizing the behavior of the early visual pathway. 
+
+Following \cite{MURATORE2025101149}, we treat the behavioral CSF as a functional approximation of the animal's visual system.
+We search for the combination of Gaussian blur and Gaussian noise that reproduces the mouse CSF measured behaviorally by Prusky. To calibrate these parameters, we simulate the standard grating detection task used in CSF experiments: blurred/noisy sinusoidal gratings are shown against noisy mid-gray images across a range of spatial frequencies and contrasts. The simulated display is divided into patches of 24 pix; within each patch we compute the contrast as the standard deviation of pixel intensities, and concatenate these patch contrasts into a feature vector. We train a linear SVM to tell apart sinusoidal grating patches from a uniform mid-gray patch, using $n = 5000$ training examples for each class. For the grating class, we randomize orientation and phase. After training, we probe the SVM with gratings at different contrasts and spatial frequencies, and measure how often it correctly reports “grating” instead of “gray.” For each spatial frequency, this accuracy-vs-contrast curve is treated as a psychometric function, from which we read off the contrast level that reaches threshold performance. We then collect those contrast thresholds across spatial frequencies (see \cref{fig:psychometrics}). Comparing the resulting CSF to the mouse CSF, we perform a grid search over blur and noise variance to minimize the L2 distance between the two (see \cref{fig:csf}).The optimal combination of parameters found by the simulated grating detection task is $\textit{blur}= 0.176$ and $\textit{noise}=0.250$.
+
+We then fix this CSF-matched preprocessing as an ``artificial retina" and feed the resulting images to AlexNet (see \cref{fig:mouseimg}). In doing so, AlexNet is constrained to operate over the same spatial bandwidth as the mouse.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{image/psycho.jpeg}
+    \caption{Psychometric curves are shown for different spatial frequencies. The intersection between the fitted psychometric curve and the 75\% accuracy criterion is the threshold contrast chosen for the CSF.}
+    \label{fig:psychometrics}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{image/csf.jpeg}
+    \caption{ The contrast sensitivity function (CSF) measured for mice by Prusky et al. \cite{PRUSKY20043411} (blue line) is shown along the CSFs obtained for a simulated
+    observer, measuring the contrast of input images in small patches with different blur and noise parameters.}
+    \label{fig:csf}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{image/mouseimg.png}
+    \caption{Example image after the "artificial mouse retina" preprocessing.}
+    \label{fig:mouseimg}
+\end{figure}
+
+\subsection{Signal Processing}
+\paragraph{Allen Brain Neuropixels Visual Coding}
+Neuropixels recordings from the Allen Brain Observatory Visual Coding dataset~\cite{alleninst_wp2024} were preprocessed following the methodology described by Nayebi et al.~\cite{nayebi}. 
+For each specimen and each visual area, we first computed the average temporal response across 10-ms time bins within the 0-250 ms post-stimulus window. This averaging was restricted to the largest contiguous time interval during which the median split-half reliability (computed across the population of recorded units within the specimen) exceeded a threshold of $0.3$.
+
+Subsequently, for each visual area, we retained only those specimens with a number of responsive units greater than or equal to the 75th percentile across all specimens in that area. After this filtering procedure, the resulting neural response for each stimulus is represented as a real-valued vector, where each element corresponds to the mean response of an individual unit (neuron) to that specific stimulus. These vectors serve as the neural representations used in the subsequent neural mapping analyses.
+
+\paragraph{AlexNet Activations}
+
+We analyzed multiple variants of the AlexNet architecture, including: (1) an untrained network with Xavier initialization, (2) a pretrained model trained on the ImageNet dataset (PyTorch default), and (3) a pretrained model trained on ImageNet images preprocessed according to our custom preprocessing pipeline (described above).
+
+For each network, we computed activations in response to the same set of visual stimuli presented to the mice in the Allen Brain dataset. From each convolutional layer, activations were spatially averaged using global average pooling, resulting in a layer-specific feature vector whose dimensionality corresponds to the number of channels in that layer. These vectors constitute the model representations used for subsequent neural correspondence analyses.
+
+\subsection{Neural mapping}
+
+The metric used in this work to map neuropixel responses to AlexNet activations is the Representation Similarity Analysis (RSA) \cite{rsa}.
+
+Given two neural system $X,Y$, a set of $n$ stimuli and let $\mathbf{z}^{(X)}_i\in \mathbb{R}^{|X|}, \mathbf{z}^{(Y)}_i\in \mathbb{R}^{|Y|}$ (where in general $|X|\neq |Y|$), be the responses of the two systems to each stimulus $i$.
+
+We define RSA score
+
+$$
+\text{RSA}^{(X,Y)} = \text{Corr}(\text{RDM}^{(X)}, \text{RDM}^{(Y)})
+$$
+
+where
+
+$$
+\text{RDM}_{i,j}^{(X)} = 1 - \text{Corr}(\mathbf{z}^{(X)}_i, \mathbf{z}^{(X)}_j)\,,
+\quad
+\text{RDM}_{i,j}^{(Y)} = 1 - \text{Corr}(\mathbf{z}^{(Y)}_i, \mathbf{z}^{(Y)}_j)
+$$
+
+and RDM is the Representation Dissimilarity Matrix.
+
+
+\subsubsection{Interanimal consistency}
+
+One upper bound of the neural predictivity is defined by the inter-animal predictivity, \textit{i.e.} the RSA score between the mice or equivalently the similarity score of one mouse and all the others. In our analysis a biological neural system is defined by the tuple $(s,a)$ where $s$ is the specimen and $a$ is a visual area. 
+
+\paragraph{Corrected RSA}
+The neuropixel data from the Allen Brain dataset are very noisy, hence to produce a robust estimate of the similarity score we used the corrected RSA proposed by \cite{nayebi}, exploiting the presence of different trials for each stimulus.
+
+Let $\mathbf{z}^{(X)}_{i,t}\in \mathbb{R}^{|X|}$ be the representation relative to the neural system $X=(s,a)$ for the stimulus $i$ and the trial $t \in \{1,\dots, T\}$ (in the dataset for each stimulus we have $T=50$). We define the $X_1, X_2$ two new neural systems such that $\mathbf{z}^{(X_1)}_{i}\in \mathbb{R}^{|X|}, \mathbf{z}^{(X_2)}_{i}\in \mathbb{R}^{|X|}$ are obtained by taking two random halves of trials and computing the average response, for each stimulus, over each subset of trials. 
+
+$$
+\text{RSA}_\text{corrected}^{(X,Y)} = \frac{\text{RSA}^{(X,Y)}}{\sqrt{\text{reliability}(X) \cdot \text{reliability}(Y)}}
+$$
+
+and the reliability of a representation is computed as the similarity between two halves of the trials, using split-half correlation (Spearman-Brown corrected):
+
+$$
+\text{reliability}(X) = \text{SB}(\text{RSA}^{(X_1, X_2)})\,,
+\quad
+\text{SB}(r) = \frac{2r}{1+r}\,.
+$$
+
+The split has been performed 100 times by randomly assigning each trial to one of the two halves, and then averaging the similarity score over the splits.
+
+\paragraph{Pooled interanimal consistency}
+
+To obtain a more robust estimate of inter-animal similarity, we introduced a pooled version of the corrected RSA, where neural responses from multiple specimens of the same visual area are combined into a single, population-level representation. Specifically, let $\mathcal{S}_a = \{s_1, s_2, \dots, s_S\}$ denote the set of specimens for a fixed area $a$. For each specimen $(s,a)$ we have trial responses $\mathbf{z}^{(s,a)}_{i,t}\in\mathbb{R}^{|(s,a)|}$ for stimulus $i$ and trial $t$.  
+
+For each source specimen $(s,a)\in \mathcal{S}_a\setminus\{s^\ast\}$, we randomly split the available trials into two disjoint halves and compute the mean response over each half, obtaining $\mathbf{z}^{(s_1,a)}_{i}$ and $\mathbf{z}^{(s_2,a)}_{i}$. The pooled representations are then built by concatenating the averaged responses of all source specimens along the neural feature dimension:
+\[
+\mathbf{z}^{(\text{pool}_1,a)}_{i} = \bigoplus_{s\in \mathcal{S}_a\setminus\{s^\ast\}} \mathbf{z}^{(s_1,a)}_{i},
+\qquad
+\mathbf{z}^{(\text{pool}_2,a)}_{i} = \bigoplus_{s\in \mathcal{S}_a\setminus\{s^\ast\}} \mathbf{z}^{(s_2,a)}_{i}.
+\]
+This ``population pooling'' procedure creates a new aggregate neural system combining information across multiple specimens from the same area. 
+
+At each bootstrap iteration, the pooled halves $(\text{pool}_1,a)$ and $(\text{pool}_2,a)$ are compared with two independent halves $(s^\ast_1,a)$ and $(s^\ast_2,a)$ of a held-out target specimen $(s^\ast,a)$ using the corrected RSA metric defined above. To ensure symmetry, we compute the cross-half similarity:
+\[
+\text{RSA}_{\text{num}} = \tfrac{1}{2}\Big(
+\text{RSA}^{(\text{pool}_1,a,\; s^\ast_2,a)} +
+\text{RSA}^{(\text{pool}_2,a,\; s^\ast_1,a)}
+\Big),
+\]
+and normalize it by the geometric mean of the reliabilities of both the pooled and target systems:
+\[
+\text{RSA}_{\text{pooled}}^{(\text{corr})}(a) =
+\frac{\text{RSA}_{\text{num}}}
+{\sqrt{\text{reliability}(\text{pool},a) \cdot \text{reliability}(s^\ast,a)}}.
+\]
+The procedure is repeated over 100 random trial partitions, and the final pooled inter-animal consistency score for area $a$ is obtained as the mean and standard deviation of the resulting corrected RSA values.
+
+
+\subsubsection{Neural predictivity}
+
+The similarity between AlexNet activations and the neuropixel responses has been computes analogously to what introduced above. 
+
+Specifically, for each layer $l$ of the convolutional network and $(s,a)$ specimen-are pair, we can define
+
+$$
+\text{RSA}^{(s,a,l)} = \text{Corr}(\text{RDM}^{(s,a)}, \text{RDM}^{(\text{AlexNet}, l)})
+$$
+
+and 
+
+$$
+\text{RSA}_\text{corrected}^{(s,a,l)} = \frac{\text{RSA}^{(s,a,l)}}{\sqrt{\text{reliability}(s,a)}}
+$$
+
+where $\text{reliability}(\text{AlexNet}, l)=1$ for all layers $l$.

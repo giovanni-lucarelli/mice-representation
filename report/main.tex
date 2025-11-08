@@ -1,0 +1,49 @@
+\documentclass[12pt]{article}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{biblatex} %Imports biblatex package
+\addbibresource{biblio.bib} %Import the bibliography file
+\usepackage[final]{hyperref}
+\usepackage{cleveref} %Smart cross-referencing
+\usepackage{fontspec} % requires luaotfload
+\setmainfont{Libertinus Serif}
+\setsansfont{Libertinus Sans}
+% \setmonofont{Libertinus Mono}
+
+\usepackage{xcolor}
+\hypersetup{
+    colorlinks = true,
+    linktoc = all,
+    allcolors = {black},
+}
+
+\geometry{
+    a4paper,
+    top=2.5cm,
+    bottom=2.5cm,
+    left=3cm,
+    right=3cm
+}
+
+\title{\textbf{Mouse Visual Cortex Modelling}\\[1em]The impact of a tailored data diet on the internal representations of CNNs}
+\author{Giacomo Amerio, Giovanni Lucarelli, Andrea Spinelli}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\input{introduction}
+
+\input{methods}
+
+\input{results}
+
+\include{conclusion}
+\newpage
+\printbibliography
+
+\end{document}

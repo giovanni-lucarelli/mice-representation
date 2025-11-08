@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import itertools
 
-from utils import get_areas, get_specimen_ids, get_trials
-from neural_maps import (
+from .utils import get_areas, get_specimen_ids, get_trials, load_memmap
+from .neural_maps import (
     sim_corrected_source_pair,
     sim_corrected_pooled_source_to_B,
     pls_corrected_single_source_to_B,
@@ -13,7 +13,6 @@ from neural_maps import (
     pls_corrected_model_to_B
 )
 
-from utils import load_memmap
 import os
 
 def consistency_across_trials(index_df, sim_metric='RSA'):

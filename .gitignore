@@ -14,3 +14,12 @@ alex-matrices-*/
 *.log
 *.pth
 *-act
+
+*.aux
+*.bbl
+*.blg
+*.log
+*.bcf
+*.gz
+*.toc
+*.xml
