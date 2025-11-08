@@ -1,17 +1,16 @@
 .*venv/
 __pycache__/
-AllenData/
+
 *backup*
 *old*
 alex-matrices-*/
-
+*.zarr
 # comment to save checkpoints
 # checkpoints/
 
-# mmap files
 *.mmap
-*.pkl
 
 # logs
 *.log
 *.pth
+*-act

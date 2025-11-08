@@ -1,0 +1,52 @@
+data:
+  batch_size: 256
+  num_workers: 15
+  train_split: 0.7
+  val_split: 0.15
+  split_seed: 42
+
+train:
+  self_supervised: false
+  num_epochs: 100
+  dropout_rate: 0.3
+  early_stopping_patience: 15
+  
+  # optimizer:
+  #   name: AdamW
+  #   params:
+  #     lr: 3e-4
+  #     weight_decay: 1e-4
+
+  optimizer:
+    name: SGD
+    params:
+      lr: 0.03
+      momentum: 0.9
+      weight_decay: 1e-4
+
+  # scheduler:
+  #   name: ReduceLROnPlateau
+  #   params:
+  #     factor: 0.5
+  #     patience: 5
+  #     mode: min
+
+  scheduler:
+    name: MultiStepLR
+    params:
+      milestones: [25, 50, 75]
+      gamma: 0.2
+
+  loss:
+    name: CrossEntropyLoss
+    params:
+      label_smoothing: 0.1
+
+  checkpoint_sub_dir: supervised_diet
+
+  save_every_n: 10
+
+diet:
+  grayscale: true
+  blur: true
+  noise: true
