@@ -43,8 +43,6 @@ The goal is to understand how biologically inspired preprocessing affects ANN re
 │   ├── artifacts/
 │   └── src/
 ├── 📚 doc/                       # references
-│   ├── allen_data.md
-│   └── *.pdf
 ├── 📝 report/                    # LaTeX report
 ├── pyproject.toml
 ├── uv.lock
