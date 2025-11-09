@@ -2,6 +2,27 @@
 
 \section{Results}
 
+Table~\ref{tab:mean_rsa_sem} reports the pooled inter-animal consistency (RSA score) computed for each visual area. The mean RSA values, together with their corresponding standard errors of the mean (SEM), quantify the reliability of neural responses across animals within each region.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{lc}
+        \hline
+        \textbf{Area} & \textbf{IC}\\
+        \hline
+        AL & 0.648 $\pm$ 0.021 \\
+        AM & 0.570 $\pm$ 0.030 \\
+        LM & 0.453 $\pm$ 0.031 \\
+        PM & 0.552 $\pm$ 0.020 \\
+        RL & 0.542 $\pm$ 0.027 \\
+        V1 & 0.592 $\pm$ 0.038 \\
+        \hline
+    \end{tabular}
+    \caption{Interanimal consistency score $\pm$ standard error for each visual area.}
+    \label{tab:mean_rsa_sem}
+\end{table}
+
+
 \vspace{-0.5em}
 
 \subsection{Data diet impact}
@@ -12,7 +33,7 @@ In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and f
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res0.jpeg}
+    \includegraphics[width=0.9\textwidth]{./image/res0.png}
 
     \vspace{-0.5em}
     \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
