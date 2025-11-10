@@ -253,4 +253,4 @@ def plot_delta_vs_baseline(scores_to_plot_rsa):
     )
 
     fig.tight_layout(rect=[0, 0, 1, 0.9])
-    plt.show()
+    return fig, axes

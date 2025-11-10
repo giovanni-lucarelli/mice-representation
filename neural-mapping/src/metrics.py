@@ -24,7 +24,7 @@ def _rdm_corr_distance(X):
     Xc = _center_rows(X)
     sd = Xc.std(axis=0, ddof=1, keepdims=True); sd[sd==0] = 1.0
     Z  = Xc / sd
-    R  = np.corrcoef(Z)      # Pearson tra righe
+    R  = np.corrcoef(Z)
     return 1.0 - R
 
 def _vec_upper(M):
