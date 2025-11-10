@@ -25,13 +25,28 @@ def get_family_and_cond(model_name: str):
     else:                   # es: INet-Td-Id
         return "-".join(parts[:2]), parts[2]
 
+# def get_model_color(model_name: str):
+#     family, cond = get_family_and_cond(model_name)
+#     base = FAMILY_COLORS[family]
+
+#     # genera tante sfumature quante condizioni possibili
+#     shades = sns.light_palette(base, len(COND_ORDER) + 1, reverse=True).as_hex()[:-1]
+#     idx = COND_ORDER.index(cond) if cond in COND_ORDER else 0
+#     return shades[idx]
+
 def get_model_color(model_name: str):
     family, cond = get_family_and_cond(model_name)
-    base = FAMILY_COLORS[family]
 
-    # genera tante sfumature quante condizioni possibili
+    # Fallback base color if family is unknown
+    base = FAMILY_COLORS.get(family, None)
+    if base is None:
+        # pick a deterministic fallback based on the family name
+        fallback_palette = sns.color_palette("tab20")
+        base = fallback_palette[abs(hash(family)) % len(fallback_palette)]
+
+    # build shades for conditions
     shades = sns.light_palette(base, len(COND_ORDER) + 1, reverse=True).as_hex()[:-1]
-    idx = COND_ORDER.index(cond) if cond in COND_ORDER else 0
+    idx = COND_ORDER.index(cond) if cond in COND_ORDER else -1  # last shade if unknown cond
     return shades[idx]
 
 def nice_label(model_name: str) -> str:
@@ -109,7 +124,7 @@ def plot_comparison(model_dfs: dict[str, pd.DataFrame], metric_name: str):
     labels = [nice_label(m) for m in models_in_plot]
 
     # metto la legenda in alto, orizzontale
-    g.fig.legend(
+    g.figure.legend(
         handles,
         labels,
         loc="upper center",
@@ -135,15 +150,16 @@ def plot_comparison(model_dfs: dict[str, pd.DataFrame], metric_name: str):
             ax.set_xlabel("")
         else:
             # ultima riga: metti xtick orizzontali
-            ax.set_xticklabels(layer_order, rotation=0)
+            ax.set_xticks(range(len(layer_order)))
+            ax.set_xticklabels(layer_order)
             ax.set_xlabel("Layer")
 
     g.set_titles("{col_name}")
     g.set_axis_labels(None, f"Median {metric_name} Score")
 
     # lascia spazio in alto per la legenda
-    g.fig.subplots_adjust(top=0.88)
-    plt.show()
+    g.figure.subplots_adjust(top=0.88)
+    return g.figure, g.axes
 
 
 

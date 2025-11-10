@@ -212,7 +212,6 @@ def compute_all_layer_scores(X_layers, index_df, sim_metric):
 
 def compute_area_scores(index_model, index_df, sim_metric):    
     layer_scores = compute_all_layer_scores(index_model, index_df, sim_metric)
-    median_scores = layer_scores.groupby(['area', 'layer'])['score'].median().reset_index()
-    sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()
-    median_scores = pd.merge(median_scores, sem_scores.rename(columns={'score': 'sem'}), on=['area', 'layer'])
-    return layer_scores, median_scores
+    # mean_scores = layer_scores.groupby(['area', 'layer'])['score'].mean().reset_index()
+    # sem_scores = layer_scores.groupby(['area', 'layer'])['score'].sem().reset_index()
+    return layer_scores
