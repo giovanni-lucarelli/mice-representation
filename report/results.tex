@@ -32,7 +32,7 @@ In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and f
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res0.png}
+    \includegraphics[width=0.9\textwidth]{./image/main-result.jpeg}
 
     \vspace{-0.5em}
     \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
@@ -42,16 +42,11 @@ In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and f
 
 Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worse score with respect to the untrained one. 
 
-**
-A possible explanation for this is that those layers of AlexNet are different from the biological mice brain, hence they do not provide a good model for the mice signals, at least in those areas. 
-For what concerns the first convolutional layer, the diet (gaussian blur and noise) may negatively affect the first convolutional filters that are usually responsible for fundamental patterns, present \textit{somehow} in the mouse visual cortex.
-**
-
 \vspace{-0.8em}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res0_delta.jpeg}
+    \includegraphics[width=0.9\textwidth]{./image/deltas.jpeg}
 
     \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
@@ -66,7 +61,7 @@ Decoupling the diet at train and inference time we can observe that we have simi
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res-inference.png}
+    \includegraphics[width=0.9\textwidth]{./image/inference.jpeg}
     \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:inference}
@@ -80,7 +75,7 @@ As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score,
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res-nayebi.jpeg}
+    \includegraphics[width=0.9\textwidth]{./image/nayebi-diet.jpeg}
     \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{lighter blue} the model trained withoud data diet but with Nayebi's diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:nayebi}
@@ -90,11 +85,11 @@ As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score,
 
 From \cref{fig:random} we can observe an interesting behaviour: the untraied model with no diet (at inference time) is the one that leads to the highest RSA score in all areas and layers, whereas all the other diets affects negatively the score. This is in contrast with what as been observed on the trained models, that benefits from the diet.
 
-\textbf{Remark:} the random diet has been defined with one random value for gaussian blur and gaussian noise therefore is not a robust measure but only a preliminary result. It requires further investigations.
+Note that the random diet has been defined with one random value for gaussian blur and gaussian noise therefore is not a robust measure but only a preliminary result. It requires further investigations.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.9\textwidth]{./image/res-random.jpeg}
+    \includegraphics[width=0.9\textwidth]{./image/random.jpeg}
     \vspace{-1em}
     \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
     \label{fig:random}
