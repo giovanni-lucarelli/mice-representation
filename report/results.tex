@@ -2,7 +2,7 @@
 
 \section{Results}
 
-Table~\ref{tab:ic_units_summary} reports the pooled inter-animal consistency (RSA score) computed for each visual area. The mean RSA values, together with their corresponding standard errors of the mean (SEM), quantify the reliability of neural responses across animals within each region.
+Table~\ref{tab:ic_units_summary} reports the number of selected specimens and units after the Allen dataset preprocessing, and the pooled inter-animal consistency (RSA score) computed for each visual area. The mean RSA values, together with their corresponding standard errors of the mean (SEM), quantify the reliability of neural responses across animals within each region.
 
 \begin{table}[h]
     \centering
@@ -22,27 +22,19 @@ Table~\ref{tab:ic_units_summary} reports the pooled inter-animal consistency (RS
     \label{tab:ic_units_summary}
 \end{table}
 
-\vspace{-0.5em}
 
 \subsection{Data diet impact}
 
-\vspace{-0.3em}
+In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and for each convolutional layer of AlexNet. We can see that the RSA score is higher in the case of data diet both at training and inference time. At training time means that all the ImageNet dataset have been preprocessed with our ``mouse-like'' pipeline, whereas at inference time means that the pipeline has been applyed to the same Allen Brain stimuli that the mice saw.
 
-In \cref{fig:rsa-qualitative} is shown the RSA score for each visual areas and for each convolutional layer of AlexNet. We can see that the RSA score is higher in the case of data diet both at training and inference time. At training time means that all the ImageNet dataset have been preprocessed with our ``mouse-like'' pipeline, whereas at inference time means that the pipeline has been applyed to the same Allen Brain \textit{stimuli} that the mice saw.
+Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worse score with respect to the untrained one. 
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{./image/main-result.jpeg}
-
-    \vspace{-0.5em}
     \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:rsa-qualitative}
 \end{figure}
-
-
-Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) have been subtracted, we can see that, the diet affects negatively the first convolutional layer but leads to higer RSA score in the subsequent layers. Moreover we can observe that in some visual areas, namely AL, LM, RL, V1, for the last two layers the trained models provide a worse score with respect to the untrained one. 
-
-\vspace{-0.8em}
 
 \begin{figure}[H]
     \centering
@@ -56,7 +48,7 @@ Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) 
 \subsection{Inference time impact of the diet}
 
 \paragraph{Inference time diet} 
-Decoupling the diet at train and inference time we can observe that we have similiar results also for the model trained on ImageNet dataset without the diet but with data diet at inference time (on Allen stimuli). From this result we can conclude that the diet at training time doesn't have a decisive impact on the neural predictivity (\cref{fig:inference}).
+Decoupling the diet at train and inference time we can observe that we have similiar results also for the model trained on ImageNet dataset without the diet but with data diet at inference time (on Allen stimuli). In \cref{fig:inference} we can observe a clear trend in which, except for the first layer, the inference time affects positively the neural predictivity on both the trained model. Specifically we can observe an higher impact on the model trained on ImageNet without data diet: the diet at inference leads to a score similar to the model trained with preprocessed ImageNet. 
 
 
 \begin{figure}[H]
