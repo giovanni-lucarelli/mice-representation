@@ -1,0 +1,25 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" version="28.2.9">
+  <diagram name="Page-1" id="_75SoDMpHK1Svldn14WE">
+    <mxGraphModel dx="790" dy="464" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="gg1FHfEsosrXCkAw5cpR-1" value="" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;direction=south;fillColor=#2596BE;strokeColor=#36393d;opacity=80;" vertex="1" parent="1">
+          <mxGeometry x="210" y="280" width="40" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="gg1FHfEsosrXCkAw5cpR-2" value="" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;direction=south;fillColor=#2596BE;strokeColor=#36393d;opacity=80;" vertex="1" parent="1">
+          <mxGeometry x="240" y="320" width="80" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="gg1FHfEsosrXCkAw5cpR-3" value="" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;direction=south;fillColor=#2596BE;strokeColor=#36393d;opacity=80;" vertex="1" parent="1">
+          <mxGeometry x="310" y="350" width="120" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="gg1FHfEsosrXCkAw5cpR-4" value="" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;direction=south;fillColor=#2596BE;strokeColor=#36393d;opacity=80;" vertex="1" parent="1">
+          <mxGeometry x="420" y="360" width="100" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="gg1FHfEsosrXCkAw5cpR-5" value="" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;direction=south;fillColor=#2596BE;strokeColor=#36393d;opacity=80;" vertex="1" parent="1">
+          <mxGeometry x="510" y="360" width="100" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
