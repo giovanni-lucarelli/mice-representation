@@ -48,25 +48,20 @@ For each specimen and each visual area, we first computed the average temporal r
 We analyzed multiple variants of the AlexNet architecture, including: (1) an untrained network with Xavier initialization, (2) a pretrained model trained on the ImageNet dataset (PyTorch default), and (3) a pretrained model trained on ImageNet images preprocessed according to our ecological diet. In doing so, AlexNet is constrained to operate over the same spatial bandwidth as the mouse.
 
 For each network, we computed activations in response to the same set of visual stimuli presented to the mice in the Allen Brain dataset. From each convolutional layer, activations were spatially averaged using global average pooling, resulting in a layer-specific feature vector whose dimensionality corresponds to the number of channels in that layer. These vectors constitute the model representations used for subsequent neural correspondence analyses.
-% \begin{table}[h]
-%     \centering
-%     \begin{tabular}{lc}
-%         \hline
-%         \textbf{Layer} & \textbf{Channels} \\
-%         \hline
-%         conv1 & 64 \\
-%         conv2 & 192 \\
-%         conv3 & 384 \\
-%         conv4 & 256 \\
-%         conv5 & 256 \\
-%         \hline 
+\vspace{0.3cm}
+\begin{table}[h]
+    \centering
+    \begin{tabular}{cccccc}
+        \hline
+         & \textbf{\texttt{conv1}} & \textbf{\texttt{conv2}} & \textbf{\texttt{conv3}} & \textbf{\texttt{conv4}} &\textbf{\texttt{conv5}} \\
+        \hline
+        Channels & 64 & 192 & 384 & 256 & 256 \\
+        \hline 
         
-%     \end{tabular}
-%     \caption{AlexNet convolutional layers architecture}
-%     \label{tab:alex-structure}
-% \end{table}
-
-\textit{}
+    \end{tabular}
+    \caption{AlexNet convolutional layers architecture. The number of channels in each layer corresponds to the size of the vector of representations of that layer after global average pooling operation.}
+    \label{tab:alex-structure}
+\end{table}
 
 \subsection{Neural mapping}
 
