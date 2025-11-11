@@ -38,7 +38,7 @@ We search for the combination of Gaussian blur and Gaussian noise that reproduce
 
 \newpage
 
-\subsection{Signal Processing}
+\subsection{Representation Preprocessing}
 \paragraph{Allen Brain Neuropixels Visual Coding}
 Neuropixels recordings from the Allen Brain Observatory Visual Coding dataset~\cite{alleninst_wp2024} were preprocessed following the methodology described by Nayebi et al.~\cite{nayebi}. 
 For each specimen and each visual area, we first computed the average temporal response across 10-ms time bins within the 0-250 ms post-stimulus window. This averaging was restricted to the largest contiguous time interval during which the median split-half reliability (computed across the population of recorded units within the specimen) exceeded a threshold of $0.3$. Subsequently, for each visual area, we retained only those specimens with a number of responsive units greater than or equal to the 75th percentile across all specimens in that area. After this filtering procedure, the resulting neural response for each stimulus is represented as a real-valued vector, where each element corresponds to the mean response of an individual unit (neuron) to that specific stimulus. These vectors serve as the neural representations used in the subsequent neural mapping analyses.
