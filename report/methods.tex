@@ -49,19 +49,19 @@ We analyzed multiple variants of the AlexNet architecture, including: (1) an unt
 
 For each network, we computed activations in response to the same set of visual stimuli presented to the mice in the Allen Brain dataset. From each convolutional layer, activations were spatially averaged using global average pooling, resulting in a layer-specific feature vector whose dimensionality corresponds to the number of channels in that layer. These vectors constitute the model representations used for subsequent neural correspondence analyses.
 \vspace{0.3cm}
-\begin{table}[h]
+\begin{table}[htbp]
     \centering
-    \begin{tabular}{cccccc}
-        \hline
-         & \textbf{\texttt{conv1}} & \textbf{\texttt{conv2}} & \textbf{\texttt{conv3}} & \textbf{\texttt{conv4}} &\textbf{\texttt{conv5}} \\
-        \hline
-        Channels & 64 & 192 & 384 & 256 & 256 \\
-        \hline 
-        
+    \begin{tabular}{lccccc}
+        \toprule
+        & \textbf{conv1} & \textbf{conv2} & \textbf{conv3} & \textbf{conv4} & \textbf{conv5} \\
+        \midrule
+        \textbf{Channels} & 64 & 192 & 384 & 256 & 256 \\
+        \bottomrule
     \end{tabular}
-    \caption{AlexNet convolutional layers architecture. The number of channels in each layer corresponds to the size of the vector of representations of that layer after global average pooling operation.}
     \label{tab:alex-structure}
+    \caption{Architecture of the convolutional layers in AlexNet. The number of channels in each layer corresponds to the dimensionality of the representation vector after global average pooling.}
 \end{table}
+
 
 \subsection{Neural mapping}
 
