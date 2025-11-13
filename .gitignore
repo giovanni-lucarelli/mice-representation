@@ -26,3 +26,5 @@ alex-matrices-*/
 .fls
 .out
 .fdb_latexmk
+
+build/
