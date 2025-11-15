@@ -15,7 +15,7 @@ FAMILY_COLORS = {
 }
 
 # 2) ordine delle condizioni dentro la famiglia
-COND_ORDER = ["In", "Id", "Iny", "Ir"]
+COND_ORDER = ["In", "Id","Idnn", "Idnb", "Iny", "Ir"]
 
 def get_family_and_cond(model_name: str):
     # es: "INet-Td-Id" -> family="INet-Td", cond="Id"
@@ -58,12 +58,17 @@ def nice_label(model_name: str) -> str:
         "Rand-Id": "Random (diet)",
         "Rand-Iny": "Random (Nayebi diet)",
         "Rand-Ir": "Random (random diet)",
-        "INet-In": "ImageNet (no diet)",
-        "INet-Id": "ImageNet (diet)",
-        "INet-Iny": "ImageNet (Nayebi diet)",
-        "INet-Td-In": "ImageNet TD (no diet)",
-        "INet-Td-Id": "ImageNet TD (train+infer diet)",
-        "INet-Td-Iny": "ImageNet TD (Nayebi diet)",
+        "Rand-Idnn": "Random (diet, no noise)",
+        "Rand-Idnb": "Random (diet, no blur)",
+        "INet-In": "INet (no diet)",
+        "INet-Id": "INet (diet)",
+        "INet-Iny": "INet (Nayebi diet)",
+        "INet-Td-In": "Eco-INet (no diet)",
+        "INet-Td-Id": "Eco-INet (diet)",
+        "INet-Td-Iny": "Eco-INet (Nayebi diet)",
+        "INet-Idnn": "INet (diet, no noise)",
+        "INet-Idnb": "INet (diet, no blur)",
+        "INet-Ir": "INet (random diet)",
     }
     # fallback: restituisci il nome originale se non è nella mappa
     return label_map.get(model_name, model_name)

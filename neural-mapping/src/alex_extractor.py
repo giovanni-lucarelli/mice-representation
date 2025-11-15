@@ -160,6 +160,27 @@ class AlexNetFeatureExtractor(nn.Module):
                 GaussianNoise(std=0.25, mono=True),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
+
+        elif diet == "diet-no-noise":
+            self.preprocess = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                RgbToGray(keep_channels=3),
+                transforms.ToTensor(),
+                GaussianBlur(kernel_size=11, sigma=1.76),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+
+        if diet == "diet-no-blur":
+            self.preprocess = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                RgbToGray(keep_channels=3),
+                transforms.ToTensor(),
+                GaussianNoise(std=0.25, mono=True),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+
         elif diet == "no-diet":
             self.preprocess = transforms.Compose([
                 transforms.Resize(256),
