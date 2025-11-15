@@ -63,7 +63,7 @@ Decoupling the diet at train and inference time we can observe that we have simi
 
 Since we observed that the main effect of the diet is at inference time we decided to explore another data diet, analogous to the one selected by Nayebi \cite{nayebi} as the optimal one. It has been defined as a rescaling of the stimuli to $64\times64$ followed with an upscaling to $224\times224$ (in order to match AlexNet input layer).
 
-As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score, analogously to our data diet. This means that the up-down scaling procedure may acts like a proxy for the mice vision system. Remarkably this diet provide the best predictivity for the first convolutional layer, hence that \texttt{conv1} benefcts from this procedure.
+As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score, analogously to our data diet. This means that the up-down scaling procedure may acts like a proxy for the mice vision system. Remarkably this diet provide the best predictivity for the first convolutional layer, hence that \texttt{conv1} beneficts from this procedure.
 
 \begin{figure}[H]
     \centering

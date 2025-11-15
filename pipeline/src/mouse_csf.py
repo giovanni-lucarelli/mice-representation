@@ -483,7 +483,10 @@ def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None
     Loads CSF parameters from a JSON file. If the file doesn't exist or force_fit is True,
     it runs the fitting process.
     """
-    if not force_fit and os.path.isfile(out_json):
+    if not force_fit:
+        if not os.path.isfile(out_json):
+            print(f"No cached CSF params found at {out_json}")
+            return None
         print(f"Loading cached CSF params from {out_json}")
         with open(out_json, 'r') as f:
             d = json.load(f)
@@ -492,7 +495,7 @@ def load_or_fit_params(out_json: str, force_fit: bool = False, pca_n: int | None
         patch_size = int(d['patch_size'])
         noise_std = float(d['noise_std'])
         return blur_sigma, blur_ker, noise_std, patch_size
-    
+
     print("Fitting CSF params (this may take a while)...")
     # Derive default log path next to out_json
     base, _ = os.path.splitext(out_json)

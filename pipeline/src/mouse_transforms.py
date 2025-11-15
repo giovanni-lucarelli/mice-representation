@@ -260,6 +260,7 @@ def mouse_transform(
     gray_keep_channels: bool = True,
     train: bool = True,
     self_supervised: bool = False,
+    resize_size: int = 256,
 ) -> transforms.Compose:
     """
     Mouse-calibrated preprocessing:
@@ -280,7 +281,7 @@ def mouse_transform(
             
         ops.append(transforms.RandomHorizontalFlip())
     else:
-        ops.append(transforms.Resize(img_size))
+        ops.append(transforms.Resize(resize_size))
         ops.append(transforms.CenterCrop(img_size))
         
     # Convert to tensor before blur to ensure tensor-based GaussianBlur
