@@ -45,10 +45,25 @@ Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) 
     \label{fig:rsa-vsrandom}
 \end{figure}
 
-\subsection{Inference time impact of the diet}
+\paragraph{Random diet}
 
-\paragraph{Inference time diet} 
-Decoupling the diet at train and inference time we can observe that we have similiar results also for the model trained on ImageNet dataset without the diet but with data diet at inference time (on Allen stimuli). In \cref{fig:inference} we can observe a clear trend in which, except for the first layer, the inference time affects positively the neural predictivity on both the trained model. Specifically we can observe an higher impact on the model trained on ImageNet without data diet: the diet at inference leads to a score similar to the model trained with preprocessed ImageNet. 
+\cref{fig:random} illustrates the effect of a ``random diet''. Here, blur and noise variance are set to one for all images. For the untrained network, the highest RSA scores across areas and layers are obtained when \emph{no} diet is applied at inference; all diets, including the random one, reduce predictivity. This contrasts with the trained models, which instead benefit from appropriately chosen diets.
+
+Because the random diet uses a single random configuration of blur and noise, these results should be considered preliminary. A more systematic exploration of the random diet parameter space is required to draw robust conclusions.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/random.jpeg}
+    \vspace{-1em}
+    \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
+    \label{fig:random}
+\end{figure}
+
+\subsection{Decoupling training- and inference-time diets}
+
+We next disentangle the contributions of training- and inference-time preprocessing. When AlexNet is trained on the original (non-mouse-like) ImageNet dataset but the data diet is applied only at inference time to the Allen stimuli, we obtain qualitatively similar trends. As shown in \cref{fig:inference}, applying the diet at inference consistently improves neural predictivity in all layers except \texttt{conv1}, for both the diet-trained and the standard ImageNet-trained models.
+
+The effect is particularly pronounced for the network trained on unprocessed ImageNet: adding the diet only at inference brings its RSA scores close to those of the model trained directly on diet-processed ImageNet. This indicates that a substantial portion of the benefit can be achieved by reshaping the stimulus statistics at inference time, without necessarily re-training the model.
 
 
 \begin{figure}[H]
@@ -59,11 +74,29 @@ Decoupling the diet at train and inference time we can observe that we have simi
     \label{fig:inference}
 \end{figure}
 
-\paragraph{Nayebi diet impact}
+\subsection{Decoupling blur and noise}
 
-Since we observed that the main effect of the diet is at inference time we decided to explore another data diet, analogous to the one selected by Nayebi \cite{nayebi} as the optimal one. It has been defined as a rescaling of the stimuli to $64\times64$ followed with an upscaling to $224\times224$ (in order to match AlexNet input layer).
+\Cref{fig:no-noise-no-blur} shows the separate contributions of Gaussian blur and Gaussian noise to the RSA score. In \texttt{conv1}, the best predictivity is obtained with a purely low-pass signal (blur only, no added noise) across all visual areas. However, this advantage decreases in deeper layers, where the full diet (blur + noise) yields higher scores.
 
-As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score, analogously to our data diet. This means that the up-down scaling procedure may acts like a proxy for the mice vision system. Remarkably this diet provide the best predictivity for the first convolutional layer, hence that \texttt{conv1} beneficts from this procedure.
+The degradation in \texttt{conv1} when noise is added can be understood in terms of the approximate linearity of the first convolutional layer. Being the first stage of processing (with no additional pooling or non-linear transformations yet), \texttt{conv1} is well-approximated by a linear filter bank. Adding Gaussian noise to the input images is therefore effectively equivalent to adding noise directly on the layer's representations. Since this noise is independently sampled across images, increasing its variance reduces the correlation between feature patterns elicited by different stimuli. As a consequence, dissimilarities in the RDM become dominated by the noise term rather than by differences in stimulus statistics. In this way, the blur--acting as a low-pass filter and already providing a good match to the cortical responses at \texttt{conv1}--is degraded when noise is added on top.
+%  A formal derivation of this argument is provided in the Appendix.
+
+This interpretation is consistent with the behavior of the ``random diet'', defined by setting the variance of both the Gaussian blur and Gaussian noise to one. In this regime, the very large blur and noise produce highly corrupted representations, effectively destroying similarity structure both across images and across layers.
+
+The key observation is that, in subsequent layers, adding noise to the input yields higher RSA scores. Noise that behaves as measurement noise at \texttt{conv1} is gradually averaged out across the network hierarchy. The remaining effect of the diet acts as a form of ``constructive interference'' that brings the RDMs of AlexNet closer to the biological RDMs. In other words, the noise component behaves as a \emph{biological regularizer} for the artificial network: it weakens AlexNet's ImageNet-specific ability to discriminate between images that are effectively similar from the mouse's perspective.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{./image/no-noise.jpeg}
+    \caption{}
+    \label{fig:no-noise-no-blur}
+\end{figure}
+
+\paragraph{Nayebi diet}
+
+To compare our results with Nayebi et al.~\cite{nayebi}, we defined a pseudo data diet analogous to their optimal configuration. Specifically, we rescale the stimuli to $64 \times 64$ pixels and then upsample them back to $224 \times 224$ to match AlexNet's input size. This pipeline implements a strong low-pass filter, harsher than our Gaussian blur, and can be regarded as a special case of our diet without the Gaussian noise.
+
+As shown in \cref{fig:nayebi}, the two diets exhibit very similar behavior across areas and layers, including \texttt{conv1}. Our blur-based diet achieves slightly better results in the first layer, likely because its kernel size was optimized to approximate Prusky's contrast sensitivity function (CSF) for mice.
 
 \begin{figure}[H]
     \centering
@@ -71,18 +104,4 @@ As we can see from \cref{fig:nayebi}, the Nayebi's diet leads to high RSA score,
     \vspace{-1em}
     \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{lighter blue} the model trained withoud data diet but with Nayebi's diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
     \label{fig:nayebi}
-\end{figure}
-
-\paragraph{Random diet impact}
-
-From \cref{fig:random} we can observe an interesting behaviour: the untraied model with no diet (at inference time) is the one that leads to the highest RSA score in all areas and layers, whereas all the other diets affects negatively the score. This is in contrast with what as been observed on the trained models, that benefits from the diet.
-
-Note that the random diet has been defined with one random value for gaussian blur and gaussian noise therefore is not a robust measure but only a preliminary result. It requires further investigations.
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.9\textwidth]{./image/random.jpeg}
-    \vspace{-1em}
-    \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
-    \label{fig:random}
 \end{figure}
