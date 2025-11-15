@@ -32,7 +32,7 @@ Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{./image/main-result.jpeg}
-    \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
+    \caption{RSA score, normalized to the noise ceiling (pooled interanimal consistency), for all visual areas and for all AlexNet convolutional layers. In \textbf{violet} the untrained model, in \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet). In all the plots in the parentesis is reported the image transformation at inference time.}
     \label{fig:rsa-qualitative}
 \end{figure}
 
@@ -41,7 +41,7 @@ Specifically, form \cref{fig:rsa-vsrandom} where the untrained model (baseline) 
     \includegraphics[width=0.9\textwidth]{./image/deltas.jpeg}
 
     \vspace{-1em}
-    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{green} the one trained with data diet (inference with diet).}
+    \caption{RSA improvement of two models w.r.t. the untrained model with no diet at inference. In \textbf{blue} the model without dieth both a training and inference time; in \textbf{green} the one with diet both at train and inference time.}
     \label{fig:rsa-vsrandom}
 \end{figure}
 
@@ -55,7 +55,7 @@ Because the random diet uses a single random configuration of blur and noise, th
     \centering
     \includegraphics[width=0.9\textwidth]{./image/random.jpeg}
     \vspace{-1em}
-    \caption{Delta RSA vs untrained model. In lighter shades of violet are shown different data diets (at inference time): our diet, Nayebi's diet and one random diet.}
+    \caption{RSA improvement of different different data diet at inference w.r.t. the untrained model with no diet at inference. In \textbf{dark violet} the model with diet at inference, in \textbf{light violet} the one with random diet at inference.}
     \label{fig:random}
 \end{figure}
 
@@ -70,7 +70,7 @@ The effect is particularly pronounced for the network trained on unprocessed Ima
     \centering
     \includegraphics[width=0.9\textwidth]{./image/inference.jpeg}
     \vspace{-1em}
-    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
+    \caption{RSA improvement of different models w.r.t. the untrained model with no diet at inference. In different shades of blue the model trained on ImageNet without and with diet at inference. In different shades of green the model trained on ecologicaly transfomed ImageNet without and with diet at inference.}
     \label{fig:inference}
 \end{figure}
 
@@ -88,7 +88,7 @@ The key observation is that, in subsequent layers, adding noise to the input yie
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{./image/no-noise.jpeg}
-    \caption{}
+    \caption{RSA improvement of different models w.r.t. the untrained model with no diet at inference. In different shades of blue the model trained on ImageNet with different diet at inference; in green the model trained on ecologicaly transfomed ImageNet with diet at inference.}
     \label{fig:no-noise-no-blur}
 \end{figure}
 
@@ -102,6 +102,13 @@ As shown in \cref{fig:nayebi}, the two diets exhibit very similar behavior acros
     \centering
     \includegraphics[width=0.9\textwidth]{./image/nayebi-diet.jpeg}
     \vspace{-1em}
-    \caption{Delta RSA vs untrained model. In \textbf{blue} the model trained without data diet (inference without diet), in \textbf{light blue} the model trained withoud data diet but with diet at inference, in \textbf{lighter blue} the model trained withoud data diet but with Nayebi's diet at inference, in \textbf{green} the one trained with data diet (inference with diet).}
+    \caption{RSA improvement of different models w.r.t. the untrained model with no diet at inference. In different shades of blue the model trained on ImageNet with different diet at inference: no diet, diet, diet with no noise, Nayebi diet. In green the model trained on ecologicaly transfomed ImageNet with diet at inference.}
     \label{fig:nayebi}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{./image/ex-nodiet-diet.jpeg}
+    \includegraphics[width=0.6\textwidth]{./image/ex-nonoise-nayebi.jpeg}
+    \caption{Different data diet transformation on one Allen Barain Dataset stimulus. From top left to bottom right: no diet, diet, diet with no noise, Nayebi diet.}
 \end{figure}
