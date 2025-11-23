@@ -71,11 +71,11 @@ def plot_image_pair(img_left, img_right, title_left: str = 'Original', title_rig
 
     fig, ax = plt.subplots(1, 2, figsize=figsize)
     ax[0].imshow(left)
-    ax[0].set_title(title_left)
+    ax[0].set_title(title_left, fontsize=18)
     ax[0].axis('off')
 
     ax[1].imshow(right)
-    ax[1].set_title(title_right)
+    ax[1].set_title(title_right, fontsize=18)
     ax[1].axis('off')
 
     plt.tight_layout()
